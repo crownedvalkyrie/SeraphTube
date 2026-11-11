@@ -1,6 +1,6 @@
 # SeraphTube
 
-SeraphTube is a desktop YouTube wrapper built with Rust and Tauri. It's designed to provide a simple, clean way to use YouTube on your desktop without having to keep a browser open.
+SeraphTube is a desktop YouTube wrapper built with Rust and Tauri. It's designed to provide a simple, clean way to use YouTube on your desktop without having to keep a browser open. ⚠️**BUILT FOR MACOS ONLY!! (Planning to make a windows and linux version in the future)**
 
 The idea behind SeraphTube is to take the YouTube experience and make it feel more like its own desktop application. It focuses on keeping things lightweight, easy to use, and customizable without adding a bunch of unnecessary clutter.
 
