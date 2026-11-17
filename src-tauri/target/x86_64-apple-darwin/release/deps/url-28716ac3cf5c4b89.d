@@ -1,0 +1,13 @@
+/Users/zy/seraphtube/src-tauri/target/x86_64-apple-darwin/release/deps/url-28716ac3cf5c4b89.d: /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/lib.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/host.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/origin.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/parser.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/path_segments.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/slicing.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/quirks.rs
+
+/Users/zy/seraphtube/src-tauri/target/x86_64-apple-darwin/release/deps/liburl-28716ac3cf5c4b89.rlib: /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/lib.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/host.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/origin.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/parser.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/path_segments.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/slicing.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/quirks.rs
+
+/Users/zy/seraphtube/src-tauri/target/x86_64-apple-darwin/release/deps/liburl-28716ac3cf5c4b89.rmeta: /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/lib.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/host.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/origin.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/parser.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/path_segments.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/slicing.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/quirks.rs
+
+/Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/lib.rs:
+/Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/host.rs:
+/Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/origin.rs:
+/Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/parser.rs:
+/Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/path_segments.rs:
+/Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/slicing.rs:
+/Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/quirks.rs:

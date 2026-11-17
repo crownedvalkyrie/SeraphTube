@@ -1,0 +1,7 @@
+{
+  "identifier": "youtube-remote",
+  "description": "Only two commands are exposed to the remote YouTube page",
+  "remote": { "urls": ["https://*.youtube.com/*", "https://youtube.com/*"] },
+  "windows": ["main"],
+  "permissions": ["allow-record-block", "allow-open-settings", "allow-get-performance"]
+}

@@ -1,0 +1,22 @@
+{
+  "id": "my-theme",
+  "name": "My Theme",
+  "effect": "none",
+  "swatch": ["#101820", "#f2aa4c", "#ffffff"],
+  "vars": {
+    "--st-bg": "#101820",
+    "--st-bg-elev": "#1a2633",
+    "--st-text": "#f4f1ea",
+    "--st-text-dim": "#a9b4c0",
+    "--st-accent": "#f2aa4c",
+    "--st-accent-2": "#d64545",
+    "--st-border": "rgba(255,255,255,.14)",
+    "--st-glow": "rgba(242,170,76,.4)",
+    "--st-radius": "8px",
+    "--st-blur": "0px",
+    "--st-font-display": "Georgia, serif",
+    "--st-font-body": "system-ui, sans-serif",
+    "--st-page-bg": "linear-gradient(180deg,#101820,#1a2633)"
+  },
+  "css": "html[data-seraph-theme=\"my-theme\"] ytd-thumbnail { border-radius: 0; }"
+}

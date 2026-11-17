@@ -1,0 +1,11 @@
+/Users/zy/seraphtube/src-tauri/target/debug/deps/tauri_build-98ecfa71d0072ce6.d: /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-build-2.7.5/src/lib.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-build-2.7.5/src/acl.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-build-2.7.5/src/manifest.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-build-2.7.5/src/mobile.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-build-2.7.5/src/windows-app-manifest.xml
+
+/Users/zy/seraphtube/src-tauri/target/debug/deps/libtauri_build-98ecfa71d0072ce6.rlib: /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-build-2.7.5/src/lib.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-build-2.7.5/src/acl.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-build-2.7.5/src/manifest.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-build-2.7.5/src/mobile.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-build-2.7.5/src/windows-app-manifest.xml
+
+/Users/zy/seraphtube/src-tauri/target/debug/deps/libtauri_build-98ecfa71d0072ce6.rmeta: /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-build-2.7.5/src/lib.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-build-2.7.5/src/acl.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-build-2.7.5/src/manifest.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-build-2.7.5/src/mobile.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-build-2.7.5/src/windows-app-manifest.xml
+
+/Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-build-2.7.5/src/lib.rs:
+/Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-build-2.7.5/src/acl.rs:
+/Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-build-2.7.5/src/manifest.rs:
+/Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-build-2.7.5/src/mobile.rs:
+/Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-build-2.7.5/src/windows-app-manifest.xml:

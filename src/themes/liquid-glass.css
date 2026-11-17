@@ -1,0 +1,29 @@
+html[data-seraph-theme="liquid-glass"] {
+  --st-bg: rgba(28,30,38,.38); --st-bg-elev: rgba(255,255,255,.10);
+  --st-text: #f5f7fb; --st-text-dim: rgba(245,247,251,.68);
+  --st-accent: #9cc2ff; --st-accent-2: #ff6a8a;
+  --st-border: rgba(255,255,255,.22); --st-glow: rgba(160,200,255,.45);
+  --st-radius: 18px; --st-blur: 28px;
+  --st-font-display: -apple-system, "SF Pro Display", system-ui, sans-serif;
+  --st-font-body: -apple-system, "SF Pro Text", system-ui, sans-serif;
+  --st-page-bg: transparent; /* the window's vibrancy shows through */
+}
+html[data-seraph-theme="liquid-glass"],
+html[data-seraph-theme="liquid-glass"] body,
+html[data-seraph-theme="liquid-glass"] ytd-app { background: transparent !important; }
+
+/* layered panels: blur + specular edge + diagonal sheen */
+html[data-seraph-theme="liquid-glass"] #masthead-container.ytd-app,
+html[data-seraph-theme="liquid-glass"] tp-yt-app-drawer #guide-content,
+html[data-seraph-theme="liquid-glass"] ytd-mini-guide-renderer,
+html[data-seraph-theme="liquid-glass"] ytd-menu-popup-renderer,
+html[data-seraph-theme="liquid-glass"] ytd-popup-container tp-yt-paper-dialog,
+html[data-seraph-theme="liquid-glass"] ytd-feed-filter-chip-bar-renderer #chips-wrapper,
+html[data-seraph-theme="liquid-glass"] section {
+  background-color: rgba(255,255,255,.07) !important;
+  background-image: linear-gradient(135deg, rgba(255,255,255,.22), rgba(255,255,255,0) 45%) !important;
+  backdrop-filter: blur(28px) saturate(180%) !important;
+  border: 1px solid rgba(255,255,255,.18);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.45), inset 0 -1px 0 rgba(255,255,255,.06), 0 10px 40px rgba(0,0,0,.28);
+}
+html[data-seraph-theme="liquid-glass"] ytd-thumbnail { box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 6px 20px rgba(0,0,0,.3); }

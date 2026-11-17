@@ -1,0 +1,16 @@
+html[data-seraph-theme="golden-gate-27"] {
+  --st-bg: rgba(11,20,38,.92); --st-bg-elev: #16233f;
+  --st-text: #eef1f5; --st-text-dim: #aab3c2;
+  --st-accent: #e5543f; --st-accent-2: #c0362c;          /* International Orange / vermilion */
+  --st-border: rgba(183,189,198,.22); --st-glow: rgba(192,54,44,.45);
+  --st-radius: 10px; --st-blur: 14px;
+  --st-font-display: "Avenir Next", "Helvetica Neue", system-ui, sans-serif;
+  --st-font-body: "Avenir Next", "Helvetica Neue", system-ui, sans-serif;
+  /* night-blue sky, fog rolling in from the bottom */
+  --st-page-bg:
+    radial-gradient(1000px 500px at 80% 112%, rgba(183,189,198,.40), transparent 70%),
+    radial-gradient(900px 420px at 8% 104%, rgba(138,147,161,.32), transparent 70%),
+    linear-gradient(180deg, #070d1c 0%, #0f1b36 45%, #2a3a5c 78%, #6f7b91 100%);
+}
+html[data-seraph-theme="golden-gate-27"] #masthead-container.ytd-app { border-bottom: 2px solid #c0362c; }
+html[data-seraph-theme="golden-gate-27"] ytd-thumbnail:hover { box-shadow: 0 0 0 2px #c0362c, 0 0 26px rgba(192,54,44,.5); }

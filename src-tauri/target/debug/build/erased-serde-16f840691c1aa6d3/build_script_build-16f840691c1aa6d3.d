@@ -1,0 +1,5 @@
+/Users/zy/seraphtube/src-tauri/target/debug/build/erased-serde-16f840691c1aa6d3/build_script_build-16f840691c1aa6d3.d: /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/erased-serde-0.4.11/build.rs
+
+/Users/zy/seraphtube/src-tauri/target/debug/build/erased-serde-16f840691c1aa6d3/build_script_build-16f840691c1aa6d3: /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/erased-serde-0.4.11/build.rs
+
+/Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/erased-serde-0.4.11/build.rs:

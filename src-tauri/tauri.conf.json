@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Seraphtube",
+  "version": "0.1.0",
+  "identifier": "app.seraphtube.desktop",
+  "build": { "frontendDist": "../src" },
+  "app": {
+    "withGlobalTauri": true,
+    "macOSPrivateApi": true,
+    "windows": [],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg", "app"],
+    "category": "public.app-category.video",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns"],
+    "macOS": {
+      "minimumSystemVersion": "14.0",
+      "hardenedRuntime": true,
+      "dmg": {
+        "windowSize": { "width": 600, "height": 400 },
+        "appPosition": { "x": 170, "y": 190 },
+        "applicationFolderPosition": { "x": 430, "y": 190 }
+      }
+    }
+  }
+}

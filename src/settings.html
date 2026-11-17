@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark light" />
+  <title>Seraphtube Settings</title>
+  <link rel="stylesheet" href="settings.css" />
+  <style id="theme-css"></style>
+</head>
+<body>
+  <header>
+    <h1>Seraphtube</h1>
+    <p>Sanctum · settings</p>
+  </header>
+
+  <main>
+    <section>
+      <h2>Vestments <small>Themes · applied live</small></h2>
+      <div id="themes" class="grid" aria-label="Available themes"></div>
+      <div class="actions">
+        <button id="open-themes" type="button">Open themes folder</button>
+        <button id="rescan" type="button">Rescan themes</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Performance</h2>
+      <label class="setting" for="performance">
+        <span>
+          <b>Runtime mode</b>
+          <small>Performance mode reduces decorative effects and background work.</small>
+        </span>
+        <select id="performance">
+          <option value="balanced">Balanced</option>
+          <option value="performance">Performance · lower overhead</option>
+        </select>
+      </label>
+      <p class="hint">Ad blocking stays enabled in both modes. Performance mode does not lower video quality or change playback resolution.</p>
+    </section>
+
+    <section>
+      <h2>Ward <small>Ad &amp; tracker blocking</small></h2>
+      <label class="setting" for="adblock">
+        <span>
+          <b>Enable blocking</b>
+          <small>Filter known ad and tracking requests and remove common YouTube ad placements.</small>
+        </span>
+        <input id="adblock" type="checkbox" />
+      </label>
+      <p class="stat">Blocked by page hooks this session <b id="blocked">0</b></p>
+      <p class="status-line"><small>Native filter rules: <span id="rules">0</span> · Engine: <span id="native">Checking…</span></small></p>
+      <p id="block-note" class="hint"></p>
+    </section>
+
+    <section>
+      <h2>Scrolls <small>Filter lists · EasyList syntax</small></h2>
+      <ul id="lists"></ul>
+      <form id="add">
+        <input id="name" type="text" placeholder="List name" aria-label="Filter list name" required />
+        <input id="url" type="url" placeholder="https://…/list.txt" aria-label="HTTPS filter list URL" required />
+        <button type="submit">Add list</button>
+      </form>
+      <div class="actions">
+        <button id="update" type="button">Update lists now</button>
+        <small id="status" role="status" aria-live="polite"></small>
+      </div>
+      <p class="hint">Lists are cached locally and refreshed weekly. Updating a large list can take a little while; the current cached rules remain active until the new list is saved.</p>
+    </section>
+
+    <section>
+      <h2>Blocking coverage</h2>
+      <p class="hint">macOS and Linux use WebKit content rules for browser-managed requests. Windows uses the injected JavaScript fallback for fetch, XHR, sendBeacon, YouTube response cleanup, and cosmetic removal. The Windows fallback cannot intercept every browser-managed image, script, iframe, or media request.</p>
+      <p class="hint">YouTube can also insert ads directly into a video stream. Those cannot be reliably removed by URL rules; the player helper attempts to skip or speed through detected ad segments. YouTube can change its player at any time.</p>
+    </section>
+
+    <p id="error" class="error" role="alert" hidden></p>
+  </main>
+  <script src="settings.js"></script>
+</body>
+</html>

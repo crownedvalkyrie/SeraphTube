@@ -1,0 +1,30 @@
+/* Tokens a theme defines: --st-bg --st-bg-elev --st-text --st-text-dim --st-accent --st-accent-2
+   --st-border --st-glow --st-radius --st-blur --st-font-display --st-font-body --st-page-bg */
+html[data-seraph-theme], html[data-seraph-theme][dark] {
+  --yt-spec-base-background: var(--st-bg) !important;
+  --yt-spec-raised-background: var(--st-bg-elev) !important;
+  --yt-spec-menu-background: var(--st-bg-elev) !important;
+  --yt-spec-general-background-a: var(--st-bg) !important;
+  --yt-spec-general-background-b: var(--st-bg-elev) !important;
+  --yt-spec-general-background-c: var(--st-bg-elev) !important;
+  --yt-spec-badge-chip-background: var(--st-bg-elev) !important;
+  --yt-spec-text-primary: var(--st-text) !important;
+  --yt-spec-text-secondary: var(--st-text-dim) !important;
+  --yt-spec-call-to-action: var(--st-accent) !important;
+  --yt-spec-brand-link-text: var(--st-accent) !important;
+  --yt-spec-10-percent-layer: var(--st-border) !important;
+  --yt-spec-static-brand-red: var(--st-accent-2) !important;
+  --yt-spec-brand-button-background: var(--st-accent-2) !important;
+}
+html[data-seraph-theme], html[data-seraph-theme] body, html[data-seraph-theme] ytd-app {
+  background: var(--st-page-bg) !important; background-attachment: fixed; color: var(--st-text);
+}
+html[data-seraph-theme] #masthead-container.ytd-app {
+  background: var(--st-bg) !important; border-bottom: 1px solid var(--st-border);
+  backdrop-filter: blur(var(--st-blur)) saturate(160%);
+}
+html[data-seraph-theme] #video-title, html[data-seraph-theme] h1.ytd-watch-metadata { font-family: var(--st-font-display) !important; }
+html[data-seraph-theme] ytd-thumbnail { border-radius: var(--st-radius); transition: box-shadow .2s; }
+html[data-seraph-theme] ytd-thumbnail:hover { box-shadow: 0 0 0 1px var(--st-accent), 0 0 24px var(--st-glow); }
+html[data-seraph-theme] .ytp-play-progress, html[data-seraph-theme] .ytp-swatch-background-color { background: var(--st-accent) !important; }
+html[data-seraph-theme] ::selection { background: var(--st-glow); }

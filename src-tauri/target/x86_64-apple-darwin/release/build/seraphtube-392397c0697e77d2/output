@@ -1,0 +1,15 @@
+cargo:rerun-if-env-changed=TAURI_CONFIG
+cargo:rustc-check-cfg=cfg(desktop)
+cargo:rustc-cfg=desktop
+cargo:rustc-check-cfg=cfg(mobile)
+cargo:rerun-if-changed=/Users/zy/seraphtube/src-tauri/tauri.conf.json
+cargo:rustc-env=TAURI_ANDROID_PACKAGE_NAME_APP_NAME=desktop
+cargo:rustc-env=TAURI_ANDROID_PACKAGE_NAME_PREFIX=app_seraphtube
+cargo:rustc-check-cfg=cfg(dev)
+cargo:PERMISSION_FILES_PATH=/Users/zy/seraphtube/src-tauri/target/x86_64-apple-darwin/release/build/seraphtube-392397c0697e77d2/out/app-manifest/__app__-permission-files
+cargo:rerun-if-changed=permissions
+cargo:PERMISSION_FILES_PATH=/Users/zy/seraphtube/src-tauri/target/x86_64-apple-darwin/release/build/seraphtube-392397c0697e77d2/out/app-manifest/__app__-permission-files
+cargo:rerun-if-changed=/Users/zy/seraphtube/src-tauri/capabilities
+cargo:rerun-if-env-changed=REMOVE_UNUSED_COMMANDS
+cargo:rustc-env=TAURI_ENV_TARGET_TRIPLE=x86_64-apple-darwin
+cargo:rustc-env=MACOSX_DEPLOYMENT_TARGET=14.0
