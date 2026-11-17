@@ -1,6 +1,0 @@
-/Users/zy/seraphtube/src-tauri/target/release/deps/zerofrom_derive-017cab8a17087244.d: /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerofrom-derive-0.1.8/src/lib.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerofrom-derive-0.1.8/src/visitor.rs
-
-/Users/zy/seraphtube/src-tauri/target/release/deps/libzerofrom_derive-017cab8a17087244.dylib: /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerofrom-derive-0.1.8/src/lib.rs /Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerofrom-derive-0.1.8/src/visitor.rs
-
-/Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerofrom-derive-0.1.8/src/lib.rs:
-/Users/zy/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zerofrom-derive-0.1.8/src/visitor.rs:
