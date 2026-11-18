@@ -12,7 +12,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos-latest, windows-latest, ubuntu-22_04]
+        include:
+          - platform: macos-latest
+            appPath: "src-tauri/target/release/bundle/dmg/*.dmg"
+          - platform: windows-latest
+            appPath: "src-tauri/target/release/bundle/nsis/*.exe"
+          - platform: ubuntu-22_04
+            appPath: "src-tauri/target/release/bundle/deb/*.deb"
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -37,10 +43,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v__VERSION__
-          releaseName: "Seraphtube v__VERSION__"
+          tagName: ${{ github.ref_name }}
+          releaseName: "Seraphtube ${{ github.ref_name }}"
           releaseBody: "Automated desktop release for Windows, macOS, and Linux."
           releaseDraft: false
           prerelease: false
           workspacedir: src-tauri
           projectPath: src-tauri
+          args: ""
