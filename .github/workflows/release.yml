@@ -14,11 +14,11 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
-            appPath: "src-tauri/target/release/bundle/dmg/*.dmg"
+            args: ""
           - platform: windows-latest
-            appPath: "src-tauri/target/release/bundle/nsis/*.exe"
+            args: ""
           - platform: ubuntu-22_04
-            appPath: "src-tauri/target/release/bundle/deb/*.deb"
+            args: ""
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -50,4 +50,4 @@ jobs:
           prerelease: false
           workspacedir: src-tauri
           projectPath: src-tauri
-          args: ""
+          args: ${{ matrix.args }}
