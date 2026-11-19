@@ -409,6 +409,8 @@ pub mod native {
         Win32::System::Com::IStream,
     };
 
+    type EventRegistrationToken = i64;
+
     // The handler is registered once per webview and reads the live matcher.
     static ACTIVE: RwLock<Option<Arc<Matcher>>> = RwLock::new(None);
     static ATTACHED: AtomicBool = AtomicBool::new(false);
