@@ -61,18 +61,24 @@ const NATIVE_FAIL: u8 = 3;
 
 /// Set once the main window has left the splash page.
 static NAVIGATED: AtomicBool = AtomicBool::new(false);
-/// When the splash first appeared (the intro animation is timed from here).
-static STARTED: OnceLock<Instant> = OnceLock::new();
+/// When the splash page finished loading (animation clock starts here).
+static SPLASH_AT: OnceLock<Instant> = OnceLock::new();
 /// Minimum time on the splash while the intro animation is enabled.
-/// This matches the 0.85 animation scale in splash.html.
-/// Minimum time on the splash while the intro animation is enabled.
-const INTRO_MS: u64 = 4000;
+/// Matches the ~0.85 animation scale in splash.html plus headroom.
+const INTRO_MS: u64 = 5000;
+/// Short hold when the user disabled the full intro.
+const QUICK_MS: u64 = 900;
 
 /// Fade-out before YouTube loads.
 const OUTRO_MS: u64 = 500;
 
 /// Never leave the user on the splash indefinitely if rule setup stalls.
-const STARTUP_WATCHDOG_SECS: u64 = 10;
+const STARTUP_WATCHDOG_SECS: u64 = 12;
+
+/// Called from the page-load handler when splash.html has finished loading.
+pub fn note_splash_shown() {
+    let _ = SPLASH_AT.set(Instant::now());
+}
 
 #[derive(Default, Clone)]
 pub struct Compiled {
@@ -498,18 +504,30 @@ pub enum Mode {
 }
 
 /// Leave the splash on a worker thread so a webview callback never has to sleep.
-/// `elapsed_ms` is measured from startup, so a slow rule build does not add another
-/// full intro delay after the watchdog fires.
-fn leave_splash(window: WebviewWindow, intro: bool, elapsed_ms: u64) {
-    let wait = if intro {
-        INTRO_MS.saturating_sub(elapsed_ms)
-    } else {
-        0
-    };
+/// Timing is measured from when the splash *page* finished loading (SPLASH_AT),
+/// not from process start, so a slow WebView2 init still shows the full intro.
+fn leave_splash(window: WebviewWindow, intro: bool) {
     std::thread::spawn(move || {
+        let hold = if intro { INTRO_MS } else { QUICK_MS };
+
+        // Wait up to 3s for the splash page-load event (note_splash_shown).
+        let wait_for_page = Instant::now();
+        while SPLASH_AT.get().is_none() && wait_for_page.elapsed() < Duration::from_secs(3) {
+            std::thread::sleep(Duration::from_millis(40));
+        }
+
+        // Kick CSS animations that WebView2 may have frozen on a transparent surface.
+        let _ = window.eval("window.__seraphSplashKick&&window.__seraphSplashKick()");
+
+        let elapsed = SPLASH_AT
+            .get()
+            .map(|t| t.elapsed().as_millis() as u64)
+            .unwrap_or(0);
+        let wait = hold.saturating_sub(elapsed);
         if wait > 0 {
             std::thread::sleep(Duration::from_millis(wait));
         }
+
         if intro {
             if let Err(error) = window.eval("document.body&&document.body.classList.add('out')") {
                 eprintln!("[startup] could not start splash fade-out: {error}");
@@ -539,9 +557,8 @@ fn settle(app: &AppHandle, window: &WebviewWindow, on: bool, ok: bool, mode: Mod
         Mode::Start => {
             if !NAVIGATED.swap(true, Ordering::AcqRel) {
                 let intro = app.state::<AppState>().settings.lock().unwrap().intro;
-                let elapsed = STARTED.get().map_or(0, |t| t.elapsed().as_millis() as u64);
                 eprintln!("[startup] native rules ready (ok={ok}); leaving splash");
-                leave_splash(window.clone(), intro, elapsed);
+                leave_splash(window.clone(), intro);
             }
         }
         Mode::Reload => {
@@ -564,11 +581,10 @@ fn arm_watchdog(app: &AppHandle, window: &WebviewWindow) {
                 .native
                 .store(native_status, Ordering::Relaxed);
             let intro = app.state::<AppState>().settings.lock().unwrap().intro;
-            let elapsed = STARTED.get().map_or(0, |t| t.elapsed().as_millis() as u64);
             eprintln!(
                 "[startup] filter setup exceeded {STARTUP_WATCHDOG_SECS} s; continuing to YouTube"
             );
-            leave_splash(window, intro, elapsed);
+            leave_splash(window, intro);
         }
     });
 }
@@ -585,9 +601,7 @@ pub fn rebuild(app: &AppHandle, first: bool) {
 
 pub fn rebuild_with(app: &AppHandle, mode: Mode) {
     let first = mode == Mode::Start;
-    if first {
-        let _ = STARTED.set(Instant::now());
-    }
+    // SPLASH_AT is set from the page-load handler via note_splash_shown(), not here.
     let app = app.clone();
 
     std::thread::spawn(move || {

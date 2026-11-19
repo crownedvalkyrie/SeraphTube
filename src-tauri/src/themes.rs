@@ -79,9 +79,20 @@ pub fn full_css(t: &Theme) -> String { format!("{BASE}\n{}", t.css) }
 /// macOS vibrancy (HudWindow), Windows 11 Mica. Linux compositors expose no such
 /// API, so the theme falls back to its plain CSS there. Removed for every other theme.
 pub fn apply_effect(app: &AppHandle, effect: &str) {
+    let glass = effect == "glass";
     for label in ["main", "settings"] {
         if let Some(w) = app.get_webview_window(label) {
-            let cfg: Option<WindowEffectsConfig> = (effect == "glass").then(|| glass_config()).flatten();
+            // On Windows, set_effects(None) immediately after window creation can
+            // reset the composition controller and leave a blank surface. Only
+            // clear effects when we are actually switching away from glass.
+            #[cfg(target_os = "windows")]
+            {
+                if !glass {
+                    // Leave the opaque window alone; no effect to clear.
+                    continue;
+                }
+            }
+            let cfg: Option<WindowEffectsConfig> = glass.then(|| glass_config()).flatten();
             let _ = w.set_effects(cfg);
         }
     }

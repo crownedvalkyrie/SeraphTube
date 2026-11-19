@@ -19,6 +19,8 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{webview::PageLoadEvent, AppHandle, Manager, State, Theme, Url, WebviewUrl, WebviewWindowBuilder};
+#[cfg(target_os = "windows")]
+use tauri::window::Color;
 #[cfg(target_os = "macos")]
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri_plugin_opener::OpenerExt;
@@ -126,13 +128,71 @@ fn nav_ok(app: &AppHandle, u: &Url) -> bool {
 }
 
 fn show_settings(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window("settings") { let _ = w.show(); let _ = w.set_focus(); return; }
-    let built = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("settings.html".into()))
-        .title("Seraphtube · Sanctum").inner_size(880., 640.).min_inner_size(640., 480.)
-        .theme(Some(Theme::Dark)).transparent(true).build();
-    if built.is_ok() {
-        let theme = themes::find(app, &app.state::<AppState>().settings.lock().unwrap().theme);
-        themes::apply_effect(app, &theme.effect);
+    if let Some(w) = app.get_webview_window("settings") {
+        let _ = w.show();
+        let _ = w.set_focus();
+        return;
+    }
+
+    let theme = themes::find(app, &app.state::<AppState>().settings.lock().unwrap().theme);
+    let glass = theme.effect == "glass";
+
+    let mut builder = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("settings.html".into()))
+        .title("Seraphtube · Sanctum")
+        .inner_size(880., 640.)
+        .min_inner_size(640., 480.)
+        .theme(Some(Theme::Dark))
+        .visible(true)
+        .focused(true);
+
+    // WebView2 on Windows does not reliably paint the first document on a
+    // transparent layered window. Keep opaque unless the active theme is glass.
+    #[cfg(target_os = "windows")]
+    {
+        if glass {
+            builder = builder
+                .transparent(true)
+                .shadow(false)
+                .background_color(Color(0, 0, 0, 0));
+        } else {
+            builder = builder
+                .transparent(false)
+                .background_color(Color(20, 18, 20, 255));
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        builder = builder.transparent(true);
+    }
+
+    match builder.build() {
+        Ok(w) => {
+            let _ = w.show();
+            let _ = w.set_focus();
+            // Nudge size so WebView2 compositor actually presents the surface.
+            #[cfg(target_os = "windows")]
+            {
+                if let Ok(size) = w.inner_size() {
+                    let _ = w.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                        width: size.width.saturating_add(1),
+                        height: size.height,
+                    }));
+                    let _ = w.set_size(tauri::Size::Physical(size));
+                }
+            }
+            // Defer glass effects until after the first paint on Windows.
+            if glass {
+                let app2 = app.clone();
+                let effect = theme.effect.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(120));
+                    themes::apply_effect(&app2, &effect);
+                });
+            }
+        }
+        Err(error) => {
+            log_startup(format!("[settings] failed to open Sanctum: {error}"));
+        }
     }
 }
 
@@ -270,8 +330,25 @@ fn main() {
                 PageLoadEvent::Finished => "finished",
             };
             log_startup(format!("[page-load] {event}: {}", p.url()));
-            if wv.label() == "main" && matches!(p.event(), PageLoadEvent::Finished) {
-                push_state(wv.app_handle());
+            if matches!(p.event(), PageLoadEvent::Finished) {
+                let label = wv.label().to_string();
+                let url = p.url().to_string();
+                // Splash finished loading: start the intro clock and kick CSS animations.
+                if label == "main" && (url.contains("splash") || url.ends_with('/') || url.contains("tauri.localhost") || url.starts_with("tauri://")) {
+                    adblock::note_splash_shown();
+                    let _ = wv.eval(
+                        "window.__seraphSplashKick&&window.__seraphSplashKick();document.documentElement.classList.add('shown')",
+                    );
+                }
+                if label == "main" {
+                    push_state(wv.app_handle());
+                }
+                // Sanctum paint kick on Windows.
+                if label == "settings" {
+                    let _ = wv.eval(
+                        "document.documentElement&&(document.documentElement.style.opacity='1');void document.body&&document.body.offsetWidth",
+                    );
+                }
             }
         });
 
@@ -305,20 +382,75 @@ fn main() {
             // Start on the local, animated splash page (src/splash.html); adblock::rebuild navigates to YouTube once the rules
             // are attached, so YouTube loads a single time instead of load-then-reload.
             let theme = themes::find(&h, &theme_id);
+            let glass = theme.effect == "glass";
             let nav = h.clone();
-            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("splash.html".into()))
-                .title("Seraphtube").inner_size(1360., 860.).min_inner_size(900., 600.)
-                .theme(Some(Theme::Dark)).transparent(true)
+            let mut window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("splash.html".into()))
+                .title("Seraphtube")
+                .inner_size(1360., 860.)
+                .min_inner_size(900., 600.)
+                .theme(Some(Theme::Dark))
+                .visible(true)
+                .focused(true)
                 .initialization_script(format!("window.__SERAPH_BOOT={};{}", payload(&h), SHELL))
                 .on_navigation(move |u| nav_ok(&nav, u));
+
+            // WebView2 freezes CSS timelines on a fully transparent first surface.
+            // Use an opaque dark background on Windows unless the theme is glass.
+            #[cfg(target_os = "windows")]
+            {
+                if glass {
+                    window = window
+                        .transparent(true)
+                        .shadow(false)
+                        .background_color(Color(0, 0, 0, 0));
+                } else {
+                    window = window
+                        .transparent(false)
+                        .background_color(Color(20, 18, 20, 255));
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                window = window.transparent(true);
+            }
+
             #[cfg(target_os = "macos")]
             let window = window.user_agent(UA);
+
             let built = window.build()?;
             match built.url() {
                 Ok(url) => log_startup(format!("main webview built at {url}")),
                 Err(error) => log_startup(format!("main webview built; URL unavailable: {error}")),
             }
-            themes::apply_effect(&h, &theme.effect);
+
+            // Force WebView2 to present the first frame (size nudge).
+            #[cfg(target_os = "windows")]
+            {
+                if let Ok(size) = built.inner_size() {
+                    let _ = built.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                        width: size.width.saturating_add(1),
+                        height: size.height,
+                    }));
+                    let _ = built.set_size(tauri::Size::Physical(size));
+                }
+                let _ = built.show();
+                let _ = built.set_focus();
+            }
+
+            // Apply glass/Mica after the first paint so the surface is already live.
+            if glass {
+                let h_eff = h.clone();
+                let effect = theme.effect.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(150));
+                    themes::apply_effect(&h_eff, &effect);
+                });
+            } else {
+                // Non-glass: still call so any previous effect is cleared, but
+                // themes::apply_effect is guarded on Windows for None.
+                themes::apply_effect(&h, &theme.effect);
+            }
+
             log_startup("starting initial filter rebuild");
             adblock::rebuild(&h, true);
 
