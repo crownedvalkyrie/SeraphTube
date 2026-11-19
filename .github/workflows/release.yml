@@ -20,7 +20,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -28,7 +28,6 @@ jobs:
           targets: x86_64-pc-windows-msvc
 
       - name: Install frontend dependencies
-        working-directory: src
         run: npm ci
 
       - name: Build and Release
@@ -37,8 +36,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "Seraphtube ${{ github.ref_name }}"
-          releaseBody: "Automated desktop release for Windows, macOS, and Linux."
+          releaseName: "SeraphTube ${{ github.ref_name }}"
+          releaseBody: "Automated Windows desktop release."
           releaseDraft: false
           prerelease: false
           projectPath: src-tauri
