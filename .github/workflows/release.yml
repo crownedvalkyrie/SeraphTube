@@ -15,20 +15,13 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
-
-      - name: Install frontend dependencies
-        run: npm ci
 
       - name: Build and Release
         uses: tauri-apps/tauri-action@v1
@@ -37,7 +30,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "SeraphTube ${{ github.ref_name }}"
-          releaseBody: "Automated Windows desktop release."
+          releaseBody: "SeraphTube Windows desktop release."
           releaseDraft: false
           prerelease: false
           projectPath: src-tauri
