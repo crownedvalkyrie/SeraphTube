@@ -7,6 +7,6 @@
     "allow-get-state", "allow-get-stats", "allow-set-theme", "allow-set-adblock",
     "allow-update-filters", "allow-add-filter-list", "allow-remove-filter-list",
     "allow-toggle-filter-list", "allow-open-themes-dir",
-    "allow-get-performance", "allow-set-performance"
+    "allow-get-performance", "allow-set-performance", "allow-set-intro"
   ]
 }

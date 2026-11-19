@@ -5,7 +5,7 @@ fn main() {
             "get_state", "get_stats", "set_theme", "set_adblock", "update_filters",
             "add_filter_list", "remove_filter_list", "toggle_filter_list",
             "open_themes_dir", "record_block", "open_settings",
-            "get_performance", "set_performance",
+            "get_performance", "set_performance", "set_intro",
         ])),
     )
     .expect("tauri-build failed");
