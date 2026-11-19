@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="color-scheme" content="dark" />
 <title>Seraphtube</title>
+<!-- Solid background so WebView2 paints the first frame even before CSS loads. -->
+<style>html,body{background:#141214;margin:0;height:100%;overflow:hidden}</style>
 <style id="theme-css"></style>
 <style>
   /* Colours come from the active theme (--st-*). Fallbacks are Gothic Cathedral. */
@@ -248,6 +250,30 @@
       }
     }
   }
+
+  // WebView2 sometimes freezes CSS timelines on the first paint of a layered
+  // window. Replaying idle/paused animations unfreezes the intro.
+  window.__seraphSplashKick = function () {
+    try {
+      const root = document.documentElement;
+      void root.offsetWidth;
+      requestAnimationFrame(() => {
+        try {
+          for (const anim of document.getAnimations()) {
+            if (anim.playState === 'paused' || anim.playState === 'idle') {
+              try { anim.play(); } catch (_) {}
+            }
+          }
+        } catch (_) {}
+      });
+    } catch (_) {}
+  };
+
+  // Fallback: if the host never kicks us, still try once after a short delay.
+  setTimeout(() => {
+    window.__seraphSplashKick && window.__seraphSplashKick();
+    document.documentElement.classList.add('shown');
+  }, 1200);
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', buildSplash, { once: true });

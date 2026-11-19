@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 :root[data-seraph-theme="stock"] {
   --st-bg: #0f0f0f;
   --st-bg-elev: #1a1a1a;
@@ -10,24 +9,3 @@
   --st-accent-soft: rgba(255, 0, 51, .28);
   --st-border: rgba(255, 255, 255, .12);
 }
-=======
-/* YouTube Stock — YouTube's own colours, untouched. Only Seraphtube's own windows are styled.
- * Handy as an A/B test: if a problem is gone here, the theme CSS was the cause. */
-:root[data-seraph-theme="stock"] {
-  --st-bg: #0f0f0f;
-  --st-bg-elev: #181818;
-  --st-bg-elev-2: #272727;
-  --st-text: #f1f1f1;
-  --st-text-dim: #aaaaaa;
-  --st-accent: #ff0033;
-  --st-accent-2: #3ea6ff;
-  --st-accent-soft: rgba(62, 166, 255, .3);
-  --st-border: rgba(255, 255, 255, .14);
-  --st-scroll: rgba(255, 255, 255, .22);
-  --st-radius: 10px;
-  --st-font-display: "Roboto", system-ui, "Segoe UI", sans-serif;
-  --st-font-body: "Roboto", system-ui, "Segoe UI", sans-serif;
-}
-/* Stock keeps the masthead seam and player accent exactly as YouTube draws them. */
-html[data-seraph-theme="stock"] ytd-masthead #container.ytd-masthead { border-bottom: 0; }
->>>>>>> e98edb851b2c295902d7dfb17c52f370c545d747
