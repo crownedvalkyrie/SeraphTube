@@ -1,56 +1,28 @@
-<<<<<<< HEAD
-# Rust & Tauri build artifacts
-target/
-src-tauri/target/
-src-tauri/gen/
-
-# Node / frontend dependencies & build output (if using npm/pnpm/vite)
-node_modules/
-dist/
-build/
-.vite/
-.parcel-cache/
-.next/
-.nuxt/
-.output/
-
-# Logs & local debug outputs
+# Logs
+logs
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
-startup.log
-seraphtube*.log
 
-# Environment & secrets
-.env
-.env.*
-!.env.example
+# Dependencies & build output
+node_modules
+dist
+dist-ssr
+*.local
 
-# OS & editor files
-.DS_Store
-.DS_Store?
-._*
-Thumbs.db
-ehthumbs.db
-Desktop.ini
+# Rust / Tauri build artifacts
+/src-tauri/target/
+
+# Editor directories and files
 .vscode/*
 !.vscode/extensions.json
-!.vscode/tasks.json
-!.vscode/launch.json
-.idea/
-*.swp
-*.swo
-*~
-=======
-# macOS metadata
+.idea
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
->>>>>>> e98edb851b2c295902d7dfb17c52f370c545d747
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
