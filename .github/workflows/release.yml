@@ -1,26 +1,19 @@
 name: "Publish Release"
 
 on:
+  workflow_dispatch:
   push:
     tags:
+      - "0.2.0"
       - "v*"
 
 jobs:
   publish-release:
     permissions:
       contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos-latest
-            args: ""
-          - platform: windows-latest
-            args: ""
-          - platform: ubuntu-22_04
-            args: ""
 
-    runs-on: ${{ matrix.platform }}
+    runs-on: windows-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -31,12 +24,12 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
 
-      - name: Install dependencies (Ubuntu only)
-        if: matrix.platform == 'ubuntu-22_04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Install frontend dependencies
+        working-directory: src
+        run: npm ci
 
       - name: Build and Release
         uses: tauri-apps/tauri-action@v1
@@ -48,6 +41,5 @@ jobs:
           releaseBody: "Automated desktop release for Windows, macOS, and Linux."
           releaseDraft: false
           prerelease: false
-          workspacedir: src-tauri
           projectPath: src-tauri
-          args: ${{ matrix.args }}
+          args: ""
