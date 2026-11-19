@@ -1,0 +1,11 @@
+:root[data-seraph-theme="stock"] {
+  --st-bg: #0f0f0f;
+  --st-bg-elev: #1a1a1a;
+  --st-bg-elev-2: #272727;
+  --st-text: #f1f1f1;
+  --st-text-dim: #aaa;
+  --st-accent: #ff0033;
+  --st-accent-2: #ff0033;
+  --st-accent-soft: rgba(255, 0, 51, .28);
+  --st-border: rgba(255, 255, 255, .12);
+}

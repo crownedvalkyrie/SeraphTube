@@ -1,6 +1,10 @@
 (() => {
   'use strict';
   if (window.__seraph) return;
+  // Top-level web pages only. The local splash page (tauri:// on macOS, tauri.localhost on
+  // Windows) has nothing to do here, and WebView2 injects this script into every iframe,
+  // where none of it is useful.
+  if (window.top !== window || location.protocol !== 'https:' || /(^|\.)localhost$/.test(location.hostname)) return;
 
   const S = (window.__seraph = {
     on: true,
@@ -15,6 +19,8 @@
     host: null,
   });
 
+  const isMac = /Mac/i.test(navigator.platform || '');
+
   const invoke = (command, args) => {
     const bridge = window.__TAURI_INTERNALS__?.invoke;
     if (typeof bridge !== 'function') return Promise.reject(new Error('Tauri bridge unavailable'));
@@ -23,10 +29,7 @@
   };
 
   const onRoot = (callback) => {
-    if (document.documentElement) {
-      callback();
-      return;
-    }
+    if (document.documentElement) { callback(); return; }
     const observer = new MutationObserver((_, current) => {
       if (!document.documentElement) return;
       current.disconnect();
@@ -35,8 +38,7 @@
     observer.observe(document, { childList: true });
   };
 
-  // Constructable stylesheets are fast and avoid adding repeated <style> nodes.
-  // Older WebKitGTK builds may not support them, so keep a simple fallback.
+  // Constructable stylesheets: no repeated <style> nodes, and replaceSync is cheap.
   function styleSink(id) {
     try {
       if (typeof CSSStyleSheet === 'function' && 'adoptedStyleSheets' in document) {
@@ -47,7 +49,7 @@
     } catch (_) { /* Fall through to the style-element path. */ }
 
     let node;
-    const update = (css) => {
+    return (css) => {
       onRoot(() => {
         if (!node) {
           node = document.createElement('style');
@@ -57,12 +59,11 @@
         node.textContent = css;
       });
     };
-    return update;
   }
 
   const setCosmetic = styleSink('cosmetic');
   const setTheme = styleSink('theme');
-  const setPerformanceStyle = styleSink('performance');
+
   const COSMETIC = [
     'ytd-ad-slot-renderer',
     'ytd-in-feed-ad-layout-renderer',
@@ -86,10 +87,15 @@
     '.ytp-ad-preview-container',
     '.ytp-ad-progress-list',
     'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-ads"]',
-  ].join(',') + '{display:none!important}' +
-    '@supports selector(ytd-rich-item-renderer:has(ytd-ad-slot-renderer)){' +
-    'ytd-rich-item-renderer:has(ytd-ad-slot-renderer){display:none!important}}';
+  ].join(',') + '{display:none!important}';
+  // :has() re-evaluates on DOM changes, so Performance mode leaves it out. The data layer
+  // already removes most ad slots before they render.
+  const COSMETIC_HAS = '@supports selector(a:has(b)){ytd-rich-item-renderer:has(ytd-ad-slot-renderer){display:none!important}}';
 
+  const applyCosmetic = () =>
+    setCosmetic(S.on ? COSMETIC + (S.performance === 'performance' ? '' : COSMETIC_HAS) : '');
+
+  // ---- counters -------------------------------------------------------------------------
   function updateBadge() {
     if (S.badge) S.badge.textContent = S.count ? String(S.count) : '';
   }
@@ -106,120 +112,138 @@
     if (!Number.isFinite(amount) || amount < 1) return;
     S.count += amount;
     updateBadge();
-    if (S.flushTimer === null) {
-      S.flushTimer = setTimeout(flushBlocked, 650);
-    }
+    if (S.flushTimer === null) S.flushTimer = setTimeout(flushBlocked, 650);
   }
 
+  // ---- page-level request filter (bundled hosts only; native rules do the heavy lifting) ----
   function isBlocked(input) {
-    if (!S.on || !input) return false;
+    if (!S.on || !input || (S.hosts.size === 0 && S.needles.length === 0)) return false;
     try {
       const url = new URL(input, location.href);
-      const hostname = url.hostname.toLowerCase();
-      for (let host = hostname; host; ) {
+      for (let host = url.hostname.toLowerCase(); host; ) {
         if (S.hosts.has(host)) return true;
         const dot = host.indexOf('.');
         host = dot >= 0 ? host.slice(dot + 1) : '';
       }
+      if (S.needles.length === 0) return false;
       const href = url.href.toLowerCase();
-      // Instead of testing every filter substring for every request, use a
-      // two-character index and only test candidates at matching positions.
       for (let index = 0; index < href.length - 1; index += 1) {
         const candidates = S.needleIndex.get(href.slice(index, index + 2));
         if (!candidates) continue;
-        for (const needle of candidates) {
-          if (href.startsWith(needle, index)) return true;
-        }
+        for (const needle of candidates) if (href.startsWith(needle, index)) return true;
       }
-      return false;
-    } catch (_) {
-      return false;
-    }
+    } catch (_) { /* Unparseable URL: let the browser decide. */ }
+    return false;
   }
 
-  // Remove known ad-only fields from parsed player/API payloads. A bounded
-  // traversal avoids turning parsing of large browse responses into a memory or
-  // CPU spike. The budget is deliberately lower in Performance mode.
-  const AD_KEYS = new Set(['adPlacements', 'playerAds', 'adSlots', 'adBreakHeartbeatParams']);
+  // ---- ad removal from data ---------------------------------------------------------------
+  // Player/API payloads carry ad fields; feed payloads carry ad items inside arrays. Removing
+  // them before YouTube's own code sees them is cheaper and cleaner than hiding them later.
+  const AD_KEYS = ['adPlacements', 'playerAds', 'adSlots', 'adBreakHeartbeatParams'];
+  const AD_ITEM_KEYS = [
+    'adSlotRenderer',
+    'promotedSparklesWebRenderer',
+    'promotedSparklesTextSearchRenderer',
+    'promotedVideoRenderer',
+    'compactPromotedVideoRenderer',
+    'displayAdRenderer',
+    'inFeedAdLayoutRenderer',
+    'searchPyvRenderer',
+  ];
+  const AD_MARKERS = AD_KEYS.concat(AD_ITEM_KEYS).map((key) => '"' + key + '"');
+
+  function isAdItem(item) {
+    if (!item || typeof item !== 'object') return false;
+    for (const key of AD_ITEM_KEYS) if (key in item) return true;
+    const inner = item.richItemRenderer && item.richItemRenderer.content;
+    if (inner && typeof inner === 'object') {
+      for (const key of AD_ITEM_KEYS) if (key in inner) return true;
+    }
+    return false;
+  }
+
+  // Iterative and bounded, so a huge browse response can never turn into a CPU spike.
   function pruneAds(root) {
     if (!S.on || !root || typeof root !== 'object') return root;
 
-    const maxNodes = S.performance === 'performance' ? 900 : 2400;
+    const budget = S.performance === 'performance' ? 4000 : 12000;
     const stack = [root];
     const visited = new WeakSet();
-    let visitedCount = 0;
-    let changed = false;
+    let seen = 0;
+    let removed = 0;
 
-    while (stack.length && visitedCount < maxNodes) {
+    while (stack.length && seen < budget) {
       const current = stack.pop();
-      if (!current || typeof current !== 'object' || visited.has(current)) continue;
+      if (visited.has(current)) continue;
       visited.add(current);
-      visitedCount += 1;
+      seen += 1;
 
       if (Array.isArray(current)) {
-        for (let index = 0; index < current.length && index < 200; index += 1) {
+        for (let index = current.length - 1; index >= 0; index -= 1) {
           const value = current[index];
-          if (value && typeof value === 'object') stack.push(value);
+          if (!value || typeof value !== 'object') continue;
+          if (isAdItem(value)) {
+            try { current.splice(index, 1); removed += 1; } catch (_) { /* Frozen array. */ }
+          } else {
+            stack.push(value);
+          }
         }
         continue;
       }
 
       for (const key of AD_KEYS) {
-        if (Object.prototype.hasOwnProperty.call(current, key)) {
-          try { delete current[key]; changed = true; } catch (_) { /* Immutable object. */ }
+        if (key in current) {
+          try { delete current[key]; removed += 1; } catch (_) { /* Immutable object. */ }
         }
       }
-
-      for (const key of ['playerResponse', 'response', 'contents', 'items', 'data']) {
+      for (const key in current) {
         const value = current[key];
         if (value && typeof value === 'object') stack.push(value);
       }
     }
 
-    if (changed) countBlocked();
+    if (removed) countBlocked(removed);
     return root;
   }
+  S.prune = pruneAds;
 
-  const JSON_AD_MARKER = /"(?:adPlacements|playerAds|adSlots|adBreakHeartbeatParams)"/;
   const originalParse = JSON.parse;
   JSON.parse = function (text, reviver) {
     const parsed = originalParse.call(this, text, reviver);
-    if (!S.on || typeof text !== 'string' || !JSON_AD_MARKER.test(text)) return parsed;
-    return pruneAds(parsed);
+    if (S.on && typeof text === 'string' && text.length > 256) {
+      for (const marker of AD_MARKERS) {
+        if (text.includes(marker)) return pruneAds(parsed);
+      }
+    }
+    return parsed;
   };
 
-  if (window.Response?.prototype?.json) {
+  if (window.Response && Response.prototype.json) {
     const originalResponseJson = Response.prototype.json;
     Response.prototype.json = function () {
-      let isYouTubeApi = false;
-      try {
-        const hostname = new URL(this?.url || '').hostname.toLowerCase();
-        isYouTubeApi = hostname === 'youtubei.googleapis.com'
-          || hostname === 'youtube.com'
-          || hostname.endsWith('.youtube.com');
-      } catch (_) { /* Non-network or opaque response URL. */ }
-      return originalResponseJson.call(this).then((value) => isYouTubeApi ? pruneAds(value) : value);
+      const pending = originalResponseJson.call(this);
+      const url = this.url;
+      return S.on && typeof url === 'string' && url.includes('/youtubei/') ? pending.then(pruneAds) : pending;
     };
   }
 
-  let initialPlayerResponse;
-  try {
-    Object.defineProperty(window, 'ytInitialPlayerResponse', {
-      configurable: true,
-      get: () => initialPlayerResponse,
-      set: (value) => { initialPlayerResponse = pruneAds(value); },
-    });
-  } catch (_) { /* YouTube may have defined a non-configurable property. */ }
+  for (const name of ['ytInitialPlayerResponse', 'ytInitialData']) {
+    let value;
+    try {
+      Object.defineProperty(window, name, {
+        configurable: true,
+        enumerable: true,
+        get: () => value,
+        set: (next) => { value = pruneAds(next); },
+      });
+    } catch (_) { /* YouTube may have defined a non-configurable property. */ }
+  }
 
-  // Network hooks cover page-initiated fetch/XHR/beacon calls. macOS and Linux
-  // also attach native WebKit rules for browser-managed subresources; Windows
-  // still relies on this page-level fallback until its WebView2 hook is installed.
+  // ---- fetch / XHR / beacon -----------------------------------------------------------------
   const originalFetch = window.fetch;
   if (typeof originalFetch === 'function') {
     window.fetch = function (input, ...rest) {
-      const url = input && typeof input === 'object' && 'url' in input
-        ? input.url
-        : String(input);
+      const url = input && typeof input === 'object' && 'url' in input ? input.url : String(input);
       if (isBlocked(url)) {
         countBlocked();
         return Promise.reject(new TypeError('Failed to fetch'));
@@ -230,8 +254,7 @@
 
   const originalXhrOpen = XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.open = function (method, url, ...rest) {
-    const requestedUrl = String(url);
-    if (isBlocked(requestedUrl)) {
+    if (isBlocked(String(url))) {
       countBlocked();
       return originalXhrOpen.call(this, method, 'data:,', ...rest);
     }
@@ -242,129 +265,139 @@
     const originalBeacon = navigator.sendBeacon.bind(navigator);
     try {
       navigator.sendBeacon = (url, data) => {
-        if (isBlocked(String(url))) {
-          countBlocked();
-          return true;
-        }
+        if (isBlocked(String(url))) { countBlocked(); return true; }
         return originalBeacon(url, data);
       };
     } catch (_) { /* Browser may expose sendBeacon as non-writable. */ }
   }
 
-  // Event-driven YouTube ad helper: no permanent 400 ms timer. The player is
-  // observed only while it exists, and video state is restored as soon as the
-  // ad-showing class is removed.
-  let currentPlayer = null;
+  // ---- in-stream ads: skip, or race through them --------------------------------------------
+  // Server-inserted ads can't be removed from the data. The player is observed only on watch
+  // pages (no document-wide observer), and video state is restored the moment the ad ends.
+  const WATCH_PAGE = /^\/(watch|shorts|live|embed)(\/|$)/;
+  const RETRY_MS = [120, 300, 700, 1500, 3000];
+
+  let player = null;
   let playerObserver = null;
-  let playerDiscoveryObserver = null;
-  let playerStateQueued = false;
-  let currentVideo = null;
-  let savedVideoState = null;
-  let lastSkipButton = null;
+  let video = null;
+  let saved = null;
+  let lastSkip = null;
+  let stateTimer = null;
+  let retryTimer = null;
 
   function restoreVideo() {
-    if (currentVideo && savedVideoState) {
+    if (video && saved) {
       try {
-        currentVideo.muted = savedVideoState.muted;
-        currentVideo.playbackRate = savedVideoState.playbackRate;
-      } catch (_) { /* The media element may already have been detached. */ }
+        video.muted = saved.muted;
+        video.playbackRate = saved.playbackRate;
+      } catch (_) { /* The media element may already be detached. */ }
     }
-    savedVideoState = null;
+    saved = null;
   }
 
-  function findPlayerVideo() {
-    const nextVideo = currentPlayer?.querySelector('video.html5-main-video') || null;
-    if (nextVideo === currentVideo) return;
-    restoreVideo();
-    currentVideo = nextVideo;
-  }
+  function onPlayerState() {
+    if (!player) return;
 
-  function handlePlayerState() {
-    if (!currentPlayer) return;
-    findPlayerVideo();
+    const nextVideo = player.querySelector('video.html5-main-video');
+    if (nextVideo !== video) { restoreVideo(); video = nextVideo; }
 
-    if (!currentPlayer.classList.contains('ad-showing')) {
+    if (!player.classList.contains('ad-showing')) {
       restoreVideo();
-      lastSkipButton = null;
+      lastSkip = null;
       return;
     }
 
-    const skip = currentPlayer.querySelector(
-      '.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern'
-    );
-    if (skip && !skip.disabled && skip !== lastSkipButton) {
-      lastSkipButton = skip;
+    const skip = player.querySelector('.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern');
+    if (skip && !skip.disabled && skip !== lastSkip) {
+      lastSkip = skip;
       skip.click();
       countBlocked();
       return;
     }
 
-    if (currentVideo && !savedVideoState) {
-      savedVideoState = {
-        muted: currentVideo.muted,
-        playbackRate: currentVideo.playbackRate,
-      };
-    }
-    if (currentVideo) {
-      try {
-        currentVideo.muted = true;
-        currentVideo.playbackRate = 16;
-      } catch (_) { /* The player can reject a rate change. */ }
-    }
-  }
-
-  function attachPlayer() {
-    const nextPlayer = document.querySelector('.html5-video-player');
-    if (!nextPlayer || nextPlayer === currentPlayer) {
-      handlePlayerState();
-      return;
-    }
-
-    if (playerObserver) playerObserver.disconnect();
-    restoreVideo();
-    currentPlayer = nextPlayer;
-    currentVideo = null;
-    playerObserver = new MutationObserver(queuePlayerState);
-    playerObserver.observe(currentPlayer, {
-      attributes: true,
-      attributeFilter: ['class'],
-      childList: true,
-      subtree: true,
-    });
-    if (playerDiscoveryObserver) playerDiscoveryObserver.disconnect();
-    handlePlayerState();
+    if (!video) return;
+    if (!saved) saved = { muted: video.muted, playbackRate: video.playbackRate };
+    try {
+      video.muted = true;
+      video.playbackRate = 16;
+      // Ads are short; if the length is known, jump to the end instead of waiting at 16x.
+      const length = video.duration;
+      if (Number.isFinite(length) && length > 0 && length < 180 && video.currentTime < length - 0.5) {
+        video.currentTime = length - 0.1;
+      }
+    } catch (_) { /* The player can reject a rate change or seek. */ }
   }
 
   function queuePlayerState() {
-    if (playerStateQueued) return;
-    playerStateQueued = true;
-    const schedule = window.requestAnimationFrame || ((callback) => setTimeout(callback, 16));
-    schedule(() => {
-      playerStateQueued = false;
-      handlePlayerState();
-    });
+    if (stateTimer !== null) return;
+    stateTimer = setTimeout(() => { stateTimer = null; onPlayerState(); }, 30);
   }
 
-  const queueAttachPlayer = () => (window.queueMicrotask || ((fn) => Promise.resolve().then(fn)))(attachPlayer);
-  document.addEventListener('yt-navigate-finish', queueAttachPlayer);
-  document.addEventListener('yt-page-data-updated', queueAttachPlayer);
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', queueAttachPlayer, { once: true });
-  } else {
-    queueAttachPlayer();
-  }
-  if (!document.querySelector('.html5-video-player') && document.documentElement) {
-    playerDiscoveryObserver = new MutationObserver(queueAttachPlayer);
-    playerDiscoveryObserver.observe(document.documentElement, { childList: true, subtree: true });
+  function detachPlayer() {
+    if (playerObserver) { playerObserver.disconnect(); playerObserver = null; }
+    restoreVideo();
+    player = null;
+    video = null;
   }
 
+  function attachPlayer(attempt = 0) {
+    clearTimeout(retryTimer);
+    if (!WATCH_PAGE.test(location.pathname)) { detachPlayer(); return; }
+
+    const next = document.querySelector('.html5-video-player');
+    if (!next) {
+      if (attempt < RETRY_MS.length) retryTimer = setTimeout(() => attachPlayer(attempt + 1), RETRY_MS[attempt]);
+      return;
+    }
+    if (next === player) { onPlayerState(); return; }
+
+    detachPlayer();
+    player = next;
+    playerObserver = new MutationObserver(queuePlayerState);
+    playerObserver.observe(player, { attributes: true, attributeFilter: ['class'], childList: true, subtree: true });
+    onPlayerState();
+  }
+
+  document.addEventListener('yt-navigate-finish', () => attachPlayer(0));
+  document.addEventListener('yt-page-data-updated', () => attachPlayer(0));
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => attachPlayer(0), { once: true });
+  else attachPlayer(0);
+
+  // ---- picture in picture + shortcuts (Windows has no menu bar) ------------------------------
+  function togglePip() {
+    const v = document.querySelector('video.html5-main-video') || document.querySelector('video');
+    if (!v) return;
+    if (typeof v.webkitSetPresentationMode === 'function') {
+      v.webkitSetPresentationMode(v.webkitPresentationMode === 'picture-in-picture' ? 'inline' : 'picture-in-picture');
+    } else if (document.pictureInPictureElement) {
+      document.exitPictureInPicture().catch(() => {});
+    } else if (v.requestPictureInPicture) {
+      v.requestPictureInPicture().catch(() => {});
+    }
+  }
+
+  if (!isMac) {
+    window.addEventListener('keydown', (event) => {
+      if (!event.ctrlKey || event.altKey || event.metaKey) return;
+      if (event.key === ',') {
+        event.preventDefault();
+        invoke('open_settings').catch(() => {});
+      } else if (event.shiftKey && (event.key === 'P' || event.key === 'p')) {
+        event.preventDefault();
+        togglePip(); // a keydown is a user gesture, so Chromium allows this
+      }
+    }, true);
+  }
+
+  // ---- performance + theme ---------------------------------------------------------------------
+  // Performance mode trims our own work (smaller prune budget, no :has() rule, no effects on
+  // the settings button). It never touches YouTube's animations: forcing every animation to
+  // ~0ms makes the looping loading spinner flicker and overlap.
   function setPerformance(mode) {
     S.performance = mode === 'performance' ? 'performance' : 'balanced';
     if (S.host) S.host.dataset.performance = S.performance;
     document.documentElement?.setAttribute('data-seraph-performance', S.performance);
-    setPerformanceStyle(S.performance === 'performance'
-      ? 'html[data-seraph-performance=\"performance\"]{scroll-behavior:auto!important}html[data-seraph-performance=\"performance\"] *,html[data-seraph-performance=\"performance\"] *::before,html[data-seraph-performance=\"performance\"] *::after{animation-duration:.001ms!important;transition-duration:.001ms!important}'
-      : '');
+    applyCosmetic();
   }
 
   S.setPerformance = setPerformance;
@@ -382,7 +415,7 @@
       bucket.push(needle);
     }
     S.needleIndex = needleIndex;
-    setCosmetic(S.on ? COSMETIC : '');
+    applyCosmetic();
     if (payload.theme) {
       setTheme(payload.theme.css || '');
       onRoot(() => document.documentElement.setAttribute('data-seraph-theme', payload.theme.id || 'default'));
@@ -394,6 +427,7 @@
   // The remote-page capability grants read-only access to this small enum.
   invoke('get_performance').then(setPerformance).catch(() => {});
 
+  // ---- floating settings button ------------------------------------------------------------------
   function mount() {
     if (!document.documentElement || document.getElementById('seraph-root')) return;
 
@@ -408,21 +442,20 @@
       :host { all: initial; }
       button {
         position: fixed; right: 14px; bottom: 14px; z-index: 2147483647;
-        display: grid; place-items: center; width: 34px; height: 34px;
-        padding: 0; border: 1px solid var(--st-accent, #c8a45a);
-        border-radius: 50%; color: var(--st-accent, #c8a45a);
-        background: rgba(10, 10, 12, .55); opacity: .32; cursor: pointer;
-        transition: opacity .16s ease, box-shadow .16s ease;
-        backdrop-filter: blur(8px);
+        display: grid; place-items: center; width: 32px; height: 32px; padding: 0;
+        border: 1px solid var(--st-accent, #c8a45a); border-radius: 50%;
+        color: var(--st-accent, #c8a45a); background: var(--st-bg-elev, #1d1a1f);
+        opacity: .3; cursor: pointer; transition: opacity .15s ease;
       }
-      button:hover, button:focus-visible { opacity: 1; box-shadow: 0 0 12px var(--st-accent, #c8a45a); outline: none; }
+      button:hover, button:focus-visible { opacity: 1; outline: none; }
+      button:focus-visible { box-shadow: 0 0 0 2px var(--st-accent, #c8a45a); }
       b {
-        position: absolute; top: -6px; right: -6px; padding: 1px 5px;
-        border-radius: 8px; color: #fff; background: #8e2f45;
-        font: 600 10px/1.4 system-ui, sans-serif;
+        position: absolute; top: -6px; right: -6px; min-width: 14px; padding: 1px 4px;
+        border-radius: 8px; color: #fff; background: var(--st-accent-2, #8e2f45);
+        font: 600 10px/1.4 system-ui, sans-serif; text-align: center;
       }
       b:empty { display: none; }
-      :host([data-performance="performance"]) button { backdrop-filter: none; transition: none; box-shadow: none; }
+      :host([data-performance="performance"]) button { transition: none; }
       @media (prefers-reduced-motion: reduce) { button { transition: none; } }
     `;
 
@@ -433,8 +466,8 @@
       return element;
     };
     const icon = svgNode('svg', {
-      viewBox: '0 0 24 24', width: 18, height: 18, fill: 'none',
-      stroke: 'currentColor', 'stroke-width': 1.4, 'aria-hidden': 'true',
+      viewBox: '0 0 24 24', width: 17, height: 17, fill: 'none',
+      stroke: 'currentColor', 'stroke-width': 1.5, 'stroke-linecap': 'round', 'aria-hidden': 'true',
     });
     icon.append(
       svgNode('circle', { cx: 12, cy: 12, r: 8.5 }),
@@ -445,7 +478,7 @@
     const badge = document.createElement('b');
     const button = document.createElement('button');
     button.type = 'button';
-    button.title = 'Seraphtube settings (Ctrl+, / Cmd+,)';
+    button.title = 'Seraphtube settings (' + (isMac ? '\u2318,' : 'Ctrl+,') + ')';
     button.setAttribute('aria-label', 'Open Seraphtube settings');
     button.append(icon, badge);
     button.addEventListener('click', () => invoke('open_settings').catch(() => {}));

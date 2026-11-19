@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<title>Seraphtube</title>
+<style id="theme-css"></style>
+<style>
+  /* Colours come from the active theme (--st-*). Fallbacks are Gothic Cathedral. */
+  :root {
+    --bg: var(--st-bg, #141214);
+    --acc: var(--st-accent, #c8a45a);
+    --acc2: var(--st-accent-2, #8e2f45);
+    --txt: var(--st-text, #e8e1d2);
+    --dim: var(--st-text-dim, #a79f8f);
+    --soft: var(--st-accent-soft, rgba(200, 164, 90, .28));
+    --d: .85; /* full intro is about 1.6 s; .3 is the quick, reduced intro */
+  }
+  html.quick { --d: .3; }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; overflow: hidden; }
+  body {
+    display: grid; place-items: center;
+    color: var(--txt); background: var(--bg);
+    font-family: var(--st-font-body, system-ui, "Segoe UI", sans-serif);
+    transition: opacity .22s ease, transform .22s ease;
+  }
+  body.out { opacity: 0; transform: scale(1.035); }
+
+  /* slow rotating light rays behind everything */
+  .rays {
+    position: fixed; left: 50%; top: 46%;
+    width: min(130vmin, 980px); aspect-ratio: 1;
+    translate: -50% -50%;
+    background: repeating-conic-gradient(from 0deg, var(--soft) 0 2.2deg, transparent 2.2deg 15deg);
+    -webkit-mask-image: radial-gradient(circle, #000 0, transparent 62%);
+            mask-image: radial-gradient(circle, #000 0, transparent 62%);
+    opacity: 0;
+    animation: raysIn calc(1.4s * var(--d)) ease-out .1s forwards, spin 40s linear infinite;
+  }
+  @keyframes raysIn { to { opacity: .5; } }
+  @keyframes spin { to { rotate: 360deg; } }
+
+  /* drifting feathers */
+  .drift { position: fixed; inset: 0; pointer-events: none; }
+  .drift i {
+    position: absolute; top: -24px; left: var(--x);
+    width: 7px; height: 17px; border-radius: 0 100% 0 100%;
+    background: linear-gradient(160deg, var(--acc), transparent);
+    opacity: 0;
+    animation: fall var(--t) linear var(--dl) infinite;
+  }
+  @keyframes fall {
+    0%   { opacity: 0;  transform: translate3d(0, 0, 0) rotate(0deg) scale(var(--s)); }
+    14%  { opacity: .8; }
+    55%  { transform: translate3d(calc(var(--sw) * -1), 55vh, 0) rotate(160deg) scale(var(--s)); }
+    100% { opacity: 0;  transform: translate3d(var(--sw), 108vh, 0) rotate(300deg) scale(var(--s)); }
+  }
+
+  .stage { position: relative; z-index: 1; display: grid; justify-items: center; width: min(440px, 90vw); }
+  .art { position: relative; width: 100%; }
+  .glow {
+    position: absolute; left: 50%; top: 58%; width: 66%; aspect-ratio: 1;
+    translate: -50% -50%; border-radius: 50%;
+    background: radial-gradient(circle, var(--soft), transparent 68%);
+    opacity: 0;
+    animation: glowIn calc(1s * var(--d)) ease-out .1s forwards, pulse 2.6s ease-in-out 1.2s infinite alternate;
+  }
+  @keyframes glowIn { to { opacity: 1; } }
+  @keyframes pulse { from { scale: .94; opacity: .85; } to { scale: 1.08; opacity: 1; } }
+
+  svg.wings { display: block; width: 100%; height: auto; overflow: visible; }
+
+  /* --- wings: every feather is a direct child of the svg, so its CSS transform origin
+         (0 0 in view-box space) is predictable; --x/--y/--r place and aim it. --- */
+  .f {
+    fill: url(#fg);
+    stroke: var(--acc); stroke-opacity: .45; stroke-width: .7;
+    transform-box: view-box; transform-origin: 0 0;
+    transform: translate(var(--x), var(--y)) rotate(var(--r));
+    animation:
+      unfurl calc(.8s * var(--d)) cubic-bezier(.16, .84, .3, 1) calc((.22s + var(--i) * .034s) * var(--d)) both,
+      flutter 2.8s ease-in-out calc((1.5s + var(--i) * .05s) * var(--d)) infinite alternate;
+  }
+  @keyframes unfurl {
+    from { opacity: 0; transform: translate(var(--x), var(--y)) rotate(calc(var(--r) * .18)) scale(.1); }
+  }
+  @keyframes flutter {
+    to { transform: translate(var(--x), var(--y)) rotate(calc(var(--r) + var(--fl))) scale(1); }
+  }
+
+  .halo-g {
+    transform-box: view-box; transform-origin: 200px 64px;
+    animation: haloIn calc(.9s * var(--d)) cubic-bezier(.2, .9, .3, 1) calc(.1s * var(--d)) both;
+  }
+  @keyframes haloIn { from { opacity: 0; transform: translateY(-18px) scale(.5); } }
+  .halo {
+    fill: none; stroke: var(--acc); stroke-width: 3.2; stroke-linecap: round;
+    transform-box: view-box; transform-origin: 200px 64px;
+    animation: bob 3s ease-in-out 1s infinite alternate;
+  }
+  @keyframes bob { to { transform: translateY(-3px); } }
+  .halo-shine { fill: none; stroke: var(--txt); stroke-width: 1; stroke-opacity: .55; }
+
+  .sigil {
+    fill: none; stroke: var(--acc); stroke-width: 1.5; stroke-linecap: round;
+    transform-box: view-box; transform-origin: 200px 150px;
+    animation: sigilIn calc(.8s * var(--d)) ease-out calc(.1s * var(--d)) both, spin 14s linear infinite;
+  }
+  @keyframes sigilIn { from { opacity: 0; scale: .3; } }
+  .core { fill: var(--txt); opacity: .9; }
+
+  /* --- title --- */
+  .title {
+    margin: 4px 0 0; color: var(--acc);
+    font: 600 clamp(22px, 5.4vw, 30px)/1.1 var(--st-font-display, Georgia, serif);
+    letter-spacing: .36em; text-indent: .36em; text-transform: uppercase;
+    animation: titleIn calc(1s * var(--d)) ease-out calc(.6s * var(--d)) both;
+  }
+  .sub {
+    margin: 8px 0 0; color: var(--dim); font-size: 11px; letter-spacing: .5em; text-indent: .5em; text-transform: uppercase;
+    animation: titleIn calc(1s * var(--d)) ease-out calc(.85s * var(--d)) both;
+  }
+  @keyframes titleIn { from { opacity: 0; transform: translateY(8px); filter: blur(7px); } }
+  .bar {
+    width: min(230px, 62vw); height: 2px; margin-top: 18px; overflow: hidden;
+    background: var(--soft); border-radius: 2px;
+    animation: titleIn calc(.6s * var(--d)) ease-out calc(.9s * var(--d)) both;
+  }
+  .bar i {
+    display: block; height: 100%; transform-origin: 0 50%;
+    background: linear-gradient(90deg, transparent, var(--acc), var(--txt));
+    animation: load calc(1.5s * var(--d)) cubic-bezier(.4, 0, .2, 1) calc(.15s * var(--d)) both;
+  }
+  @keyframes load { from { transform: scaleX(0); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    .drift { display: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="rays" aria-hidden="true"></div>
+  <div class="drift" id="drift" aria-hidden="true"></div>
+
+  <main class="stage" aria-label="Seraphtube is loading">
+    <div class="art">
+      <div class="glow"></div>
+      <svg class="wings" id="wings" viewBox="0 0 400 260" role="img" aria-label="Angel wings and halo">
+        <defs>
+          <linearGradient id="fg" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" style="stop-color:var(--acc);stop-opacity:.95" />
+            <stop offset=".55" style="stop-color:var(--txt);stop-opacity:.42" />
+            <stop offset="1" style="stop-color:var(--txt);stop-opacity:.1" />
+          </linearGradient>
+        </defs>
+        <!-- feathers are generated by the script below, directly under this element -->
+        <g class="halo-g">
+          <ellipse class="halo" cx="200" cy="64" rx="36" ry="9.5" />
+          <ellipse class="halo-shine" cx="200" cy="62" rx="31" ry="7" />
+        </g>
+        <g class="sigil">
+          <circle cx="200" cy="150" r="13" />
+          <circle cx="200" cy="150" r="5" />
+          <path d="M200 134v32M184 150h32M188.7 138.7l22.6 22.6M211.3 138.7l-22.6 22.6" />
+        </g>
+        <circle class="core" cx="200" cy="150" r="2.2" />
+      </svg>
+    </div>
+    <h1 class="title">Seraphtube</h1>
+    <p class="sub">Sanctum</p>
+    <div class="bar" aria-hidden="true"><i></i></div>
+  </main>
+
+<script>
+(() => {
+  'use strict';
+
+  function applyBoot(boot) {
+    if (!boot || typeof boot !== 'object') return;
+    if (boot.theme) {
+      const themeStyle = document.getElementById('theme-css');
+      if (themeStyle) themeStyle.textContent = boot.theme.css || '';
+      document.documentElement.dataset.seraphTheme = boot.theme.id || 'default';
+    }
+    if (boot.intro === false) {
+      document.documentElement.classList.add('quick');
+    } else {
+      document.documentElement.classList.remove('quick');
+    }
+  }
+
+  function buildSplash() {
+    const boot = window.__SERAPH_BOOT;
+    applyBoot(boot);
+
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.getElementById('wings');
+    const anchor = svg ? svg.querySelector('.halo-g') : null;
+    const ROOT_Y = 150, ROOT_DX = 14;
+
+    const feather = (length, width) =>
+      `M0 0C${width} ${-length * .22} ${width * .85} ${-length * .8} 0 ${-length}` +
+      `C${-width * .85} ${-length * .8} ${-width} ${-length * .22} 0 0Z`;
+
+    const ROWS = [
+      { n: 9, from: 24, to: 106, k: 1 },     // primaries
+      { n: 8, from: 30, to: 98,  k: .62 },   // secondaries
+      { n: 7, from: 34, to: 92,  k: .36 },   // coverts
+    ];
+
+    if (svg && !svg.querySelector('path.f')) {
+      for (let rIdx = 0; rIdx < ROWS.length; rIdx += 1) {
+        const row = ROWS[rIdx];
+        for (let step = 0; step < row.n; step += 1) {
+          const t = row.n === 1 ? 0 : step / (row.n - 1);
+          const angle = row.from + (row.to - row.from) * t;
+          const length = (70 + ((angle - 24) / 82) * 96) * row.k;
+          const width = length * .135;
+          const order = (row.n - 1 - step) + rIdx * 2;
+          for (const side of [1, -1]) {
+            const path = document.createElementNS(NS, 'path');
+            path.setAttribute('d', feather(length, width));
+            path.setAttribute('class', 'f');
+            path.style.cssText =
+              `--x:${200 + side * ROOT_DX}px;--y:${ROOT_Y}px;--r:${side * angle}deg;` +
+              `--i:${order};--fl:${(side * (1.2 + (step % 3) * .5)).toFixed(2)}deg`;
+            if (anchor) svg.insertBefore(path, anchor);
+            else svg.appendChild(path);
+          }
+        }
+      }
+    }
+
+    const drift = document.getElementById('drift');
+    if (drift && drift.childElementCount === 0) {
+      const rnd = (a, b) => a + Math.random() * (b - a);
+      const count = boot && boot.intro === false ? 0 : 14;
+      for (let k = 0; k < count; k += 1) {
+        const f = document.createElement('i');
+        f.style.cssText =
+          `--x:${rnd(4, 96).toFixed(1)}%;--s:${rnd(.6, 1.3).toFixed(2)};--t:${rnd(4, 7.5).toFixed(2)}s;` +
+          `--dl:${rnd(0, 3.2).toFixed(2)}s;--sw:${rnd(-70, 70).toFixed(0)}px`;
+        drift.append(f);
+      }
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', buildSplash, { once: true });
+  } else {
+    buildSplash();
+  }
+
+  window.addEventListener('seraph:boot', (event) => {
+    applyBoot(event?.detail || window.__SERAPH_BOOT);
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,21 +1,12 @@
-html[data-seraph-theme="gothic-cathedral"] {
-  --st-bg: #141214; --st-bg-elev: #1d1a1f;
-  --st-text: #e8e1d2; --st-text-dim: #a79f8f;
-  --st-accent: #c8a45a; --st-accent-2: #8e2f45;
-  --st-border: rgba(200,164,90,.22); --st-glow: rgba(200,164,90,.35);
-  --st-radius: 4px; --st-blur: 0px;
-  --st-font-display: "Didot", "Bodoni 72", "Baskerville", "Palatino", serif;
-  --st-font-body: "Iowan Old Style", "Palatino", "Georgia", serif;
-  /* three rose-window glows (ruby, sapphire, emerald) over charcoal */
-  --st-page-bg:
-    radial-gradient(1200px 420px at 50% -120px, rgba(142,47,69,.30), transparent 70%),
-    radial-gradient(900px 380px at 12% -80px, rgba(47,75,138,.24), transparent 70%),
-    radial-gradient(900px 380px at 88% -80px, rgba(47,107,87,.20), transparent 70%),
-    #121013;
+:root[data-seraph-theme="gothic-cathedral"] {
+  --st-bg: #141214;
+  --st-bg-elev: #1d1a1f;
+  --st-bg-elev-2: #262229;
+  --st-text: #e8e1d2;
+  --st-text-dim: #a79f8f;
+  --st-accent: #c8a45a;
+  --st-accent-2: #8e2f45;
+  --st-accent-soft: rgba(200, 164, 90, .28);
+  --st-border: rgba(200, 164, 90, .22);
+  --st-font-display: Georgia, serif;
 }
-/* stained-glass lintel under the masthead */
-html[data-seraph-theme="gothic-cathedral"] #masthead-container.ytd-app {
-  border: 0; border-style: solid; border-width: 0 0 2px;
-  border-image: linear-gradient(90deg, #8e2f45, #c8a45a, #2f4b8a, #c8a45a, #2f6b57) 1;
-}
-html[data-seraph-theme="gothic-cathedral"] ytd-thumbnail { border: 1px solid rgba(200,164,90,.12); }
