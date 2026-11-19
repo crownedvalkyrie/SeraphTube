@@ -78,11 +78,18 @@ impl Rule {
             _ => {}
         }
         if !self.if_domain.is_empty()
-            && !self.if_domain.iter().any(|d| domain_match(req.page_host, d))
+            && !self
+                .if_domain
+                .iter()
+                .any(|d| domain_match(req.page_host, d))
         {
             return false;
         }
-        if self.unless_domain.iter().any(|d| domain_match(req.page_host, d)) {
+        if self
+            .unless_domain
+            .iter()
+            .any(|d| domain_match(req.page_host, d))
+        {
             return false;
         }
         self.regex().map_or(false, |re| re.is_match(req.url))
@@ -129,7 +136,12 @@ impl RuleSet {
                 .ok()
         };
 
-        Self { rules, ac, by_literal, generic }
+        Self {
+            rules,
+            ac,
+            by_literal,
+            generic,
+        }
     }
 
     fn matches(&self, req: &Req) -> bool {
@@ -149,7 +161,9 @@ impl RuleSet {
                 }
             }
         }
-        self.generic.iter().any(|&i| self.rules[i as usize].matches(req))
+        self.generic
+            .iter()
+            .any(|&i| self.rules[i as usize].matches(req))
     }
 }
 
@@ -172,7 +186,9 @@ impl Matcher {
                 _ => continue,
             };
             let t = &r["trigger"];
-            let Some(pattern) = t["url-filter"].as_str() else { continue };
+            let Some(pattern) = t["url-filter"].as_str() else {
+                continue;
+            };
 
             let types = match t["resource-type"].as_array() {
                 None => T_DEFAULT,
@@ -217,13 +233,18 @@ impl Matcher {
             });
         }
 
-        Ok(Self { block: RuleSet::build(block), allow: RuleSet::build(allow) })
+        Ok(Self {
+            block: RuleSet::build(block),
+            allow: RuleSet::build(allow),
+        })
     }
 
     /// `ctx` is COREWEBVIEW2_WEBRESOURCE_CONTEXT as an integer.
     /// `page_url` is only evaluated for requests that survive the cheap checks.
     pub fn should_block(&self, url: &str, ctx: i32, page_url: impl FnOnce() -> String) -> bool {
-        let Some(host) = host_of(url) else { return false };
+        let Some(host) = host_of(url) else {
+            return false;
+        };
         // Wry's own custom protocols (ipc.localhost etc.) must never be touched.
         if host == "localhost" || host.ends_with(".localhost") {
             return false;
@@ -231,10 +252,12 @@ impl Matcher {
         // YouTube's own hosts are never blocked (thumbnails, video segments, player API,
         // ad/telemetry endpoints). This is also the hot path: most requests on a YouTube
         // page are first-party, so they skip matching entirely.
-        if crate::adblock::FIRST_PARTY
-            .iter()
-            .any(|d| host == *d || (host.len() > d.len() && host.ends_with(d) && host.as_bytes()[host.len() - d.len() - 1] == b'.'))
-        {
+        if crate::adblock::FIRST_PARTY.iter().any(|d| {
+            host == *d
+                || (host.len() > d.len()
+                    && host.ends_with(d)
+                    && host.as_bytes()[host.len() - d.len() - 1] == b'.')
+        }) {
             return false;
         }
         let page = page_url();
@@ -265,7 +288,10 @@ fn kind_of(ctx: i32) -> u8 {
 /// Host of an http(s)/ws(s) URL, without userinfo or port. Other schemes: None.
 fn host_of(url: &str) -> Option<&str> {
     let (scheme, rest) = url.split_once("://")?;
-    if !matches!(scheme.to_ascii_lowercase().as_str(), "http" | "https" | "ws" | "wss") {
+    if !matches!(
+        scheme.to_ascii_lowercase().as_str(),
+        "http" | "https" | "ws" | "wss"
+    ) {
         return None;
     }
     let authority = rest.split(['/', '?', '#']).next()?;
@@ -282,11 +308,12 @@ fn site(host: &str) -> &str {
     let mut labels = host.rsplit('.');
     let tld = labels.next().unwrap_or("");
     let sld = labels.next().unwrap_or("");
-    let want = if tld.len() == 2 && matches!(sld, "co" | "com" | "org" | "net" | "gov" | "edu" | "ac") {
-        3
-    } else {
-        2
-    };
+    let want =
+        if tld.len() == 2 && matches!(sld, "co" | "com" | "org" | "net" | "gov" | "edu" | "ac") {
+            3
+        } else {
+            2
+        };
     let mut dots = 0;
     for (i, b) in host.bytes().enumerate().rev() {
         if b == b'.' {
@@ -313,8 +340,14 @@ fn domain_match(page_host: &str, domain: &str) -> bool {
 /// Those regexes only use `.*`, `[/:&?=]`, escaped characters, and the fixed
 /// prefix/tail above, so a simple scan is sound.
 fn longest_literal(re: &str) -> Option<String> {
-    let mid = re.strip_prefix(PREFIX).or_else(|| re.strip_prefix('^')).unwrap_or(re);
-    let mid = mid.strip_suffix(TAIL).or_else(|| mid.strip_suffix('$')).unwrap_or(mid);
+    let mid = re
+        .strip_prefix(PREFIX)
+        .or_else(|| re.strip_prefix('^'))
+        .unwrap_or(re);
+    let mid = mid
+        .strip_suffix(TAIL)
+        .or_else(|| mid.strip_suffix('$'))
+        .unwrap_or(mid);
 
     let mut best = String::new();
     let mut cur = String::new();
@@ -355,6 +388,7 @@ fn longest_literal(re: &str) -> Option<String> {
 // ---------------------------------------------------------------------------
 // Windows: WebView2 hook
 // ---------------------------------------------------------------------------
+
 #[cfg(windows)]
 pub mod native {
     use super::Matcher;
@@ -363,17 +397,20 @@ pub mod native {
         atomic::{AtomicBool, Ordering},
         Arc, RwLock,
     };
+
     use tauri::{webview::PlatformWebview, AppHandle, Manager};
+
     use webview2_com::{
         take_pwstr, Microsoft::Web::WebView2::Win32::*, WebResourceRequestedEventHandler,
     };
+
     use windows::{
         core::{w, PWSTR},
+        Foundation::EventRegistrationToken,
         Win32::System::Com::IStream,
     };
 
-    // The handler is registered once per webview and reads the live matcher, so a
-    // rebuild (toggle, list update) is just a pointer swap: no handler churn.
+    // The handler is registered once per webview and reads the live matcher.
     static ACTIVE: RwLock<Option<Arc<Matcher>>> = RwLock::new(None);
     static ATTACHED: AtomicBool = AtomicBool::new(false);
 
@@ -387,56 +424,69 @@ pub mod native {
         ACTIVE.read().ok().and_then(|slot| slot.clone())
     }
 
-    /// Runs on the main thread (inside `with_webview`). Idempotent.
+    /// Runs on the main thread (inside with_webview). Idempotent.
     pub fn attach(webview: &PlatformWebview, app: AppHandle) -> bool {
         if ATTACHED.load(Ordering::Acquire) {
             return true;
         }
+
         let attached = unsafe {
             (|| -> windows::core::Result<()> {
                 let core = webview.controller().CoreWebView2()?;
                 let env = webview.environment();
 
-                core.AddWebResourceRequestedFilter(w!("*"), COREWEBVIEW2_WEBRESOURCE_CONTEXT_ALL)?;
+                core.AddWebResourceRequestedFilter(w!("*"), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL)?;
 
-                let handler = WebResourceRequestedEventHandler::create(Box::new(move |sender, args| {
-                    let (Some(args), Some(matcher)) = (args, active()) else {
-                        return Ok(());
-                    };
-                    let request = args.Request()?;
-                    let mut uri = PWSTR::null();
-                    request.Uri(&mut uri)?;
-                    let url = take_pwstr(uri);
+                let handler =
+                    WebResourceRequestedEventHandler::create(Box::new(move |sender, args| {
+                        let (Some(args), Some(matcher)) = (args, active()) else {
+                            return Ok(());
+                        };
 
-                    let mut ctx = COREWEBVIEW2_WEBRESOURCE_CONTEXT::default();
-                    args.ResourceContext(&mut ctx)?;
+                        let request = args.Request()?;
 
-                    let page = || {
-                        sender
-                            .as_ref()
-                            .and_then(|s| {
-                                let mut p = PWSTR::null();
-                                s.Source(&mut p).ok()?;
-                                Some(take_pwstr(p))
-                            })
-                            .unwrap_or_default()
-                    };
+                        let mut uri = PWSTR::null();
+                        request.Uri(&mut uri)?;
 
-                    if matcher.should_block(&url, ctx.0, page) {
-                        let response = env.CreateWebResourceResponse(
-                            None::<&IStream>,
-                            403,
-                            w!("Blocked"),
-                            w!("Content-Type: text/plain"),
-                        )?;
-                        args.SetResponse(&response)?;
-                        app.state::<AppState>().blocked.fetch_add(1, Ordering::Relaxed);
-                    }
-                    Ok(())
-                }));
+                        let url = take_pwstr(uri);
+
+                        let mut ctx = COREWEBVIEW2_WEB_RESOURCE_CONTEXT::default();
+
+                        args.ResourceContext(&mut ctx)?;
+
+                        let page = || {
+                            sender
+                                .as_ref()
+                                .and_then(|s| {
+                                    let mut p = PWSTR::null();
+                                    s.Source(&mut p).ok()?;
+                                    Some(take_pwstr(p))
+                                })
+                                .unwrap_or_default()
+                        };
+
+                        if matcher.should_block(&url, ctx.0, page) {
+                            let response = env.CreateWebResourceResponse(
+                                None::<&IStream>,
+                                403,
+                                w!("Blocked"),
+                                w!("Content-Type: text/plain"),
+                            )?;
+
+                            args.SetResponse(&response)?;
+
+                            app.state::<AppState>()
+                                .blocked
+                                .fetch_add(1, Ordering::Relaxed);
+                        }
+
+                        Ok(())
+                    }));
 
                 let mut token = EventRegistrationToken::default();
+
                 core.add_WebResourceRequested(&handler, &mut token)?;
+
                 Ok(())
             })()
         };
@@ -487,7 +537,10 @@ mod tests {
         assert!(!block("https://www.youtube.com/ptracking?x=1", 8));
         assert!(!block("https://www.youtube.com/watch?v=abc", 1));
         assert!(!block("https://i.ytimg.com/vi/abc/hq720.jpg", 3));
-        assert!(!block("https://rr3---sn-a.googlevideo.com/videoplayback", 4));
+        assert!(!block(
+            "https://rr3---sn-a.googlevideo.com/videoplayback",
+            4
+        ));
         assert!(block("https://ad.doubleclick.net/x.js", 6));
     }
 
