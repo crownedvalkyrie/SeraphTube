@@ -1,4 +1,4 @@
-name: "Publish Release"
+name: Publish Release
 
 on:
   workflow_dispatch:
@@ -7,11 +7,11 @@ on:
       - "0.2.0"
       - "v*"
 
+permissions:
+  contents: write
+
 jobs:
   publish-release:
-    permissions:
-      contents: write
-
     runs-on: windows-latest
 
     steps:
@@ -23,15 +23,20 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
       - name: Build and Release
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          projectPath: src-tauri
           tagName: ${{ github.ref_name }}
-          releaseName: "SeraphTube ${{ github.ref_name }}"
-          releaseBody: "SeraphTube Windows desktop release."
+          releaseName: SeraphTube ${{ github.ref_name }}
+          releaseBody: SeraphTube Windows desktop release.
           releaseDraft: false
           prerelease: false
-          projectPath: src-tauri
           args: ""

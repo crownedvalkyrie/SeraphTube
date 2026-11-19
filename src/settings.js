@@ -16,6 +16,7 @@
   let state = null;
   let statsTimer = null;
   let activeTab = 'appearance';
+  let themeQuery = '';
 
   function showError(error) {
     const message = String(error?.message || error || 'Unknown error');
@@ -94,7 +95,26 @@
 
   function renderThemes() {
     const themes = state?.themes || [];
-    $('#themes').replaceChildren(...themes.map((theme) => {
+    const q = themeQuery.trim().toLowerCase();
+    const filtered = q
+      ? themes.filter((theme) => {
+          const kind = theme.builtin ? 'built-in builtin' : 'custom';
+          const haystack = `${theme.name || ''} ${theme.id || ''} ${kind}`.toLowerCase();
+          return haystack.includes(q);
+        })
+      : themes;
+
+    const clearBtn = $('#theme-search-clear');
+    if (clearBtn) clearBtn.hidden = !themeQuery;
+
+    if (filtered.length === 0) {
+      $('#themes').replaceChildren(
+        h('p', { className: 'empty-themes' }, q ? `No themes match "${themeQuery.trim()}".` : 'No themes found.')
+      );
+      return;
+    }
+
+    $('#themes').replaceChildren(...filtered.map((theme) => {
       const selected = theme.id === state.settings.theme;
       const button = h('button', {
         type: 'button',
@@ -230,6 +250,33 @@
   }
 
   // ---- wiring -----------------------------------------------------------------------------------
+  const themeSearch = $('#theme-search');
+  const themeSearchClear = $('#theme-search-clear');
+  if (themeSearch) {
+    themeSearch.addEventListener('input', (event) => {
+      themeQuery = event.currentTarget.value;
+      renderThemes();
+    });
+    themeSearch.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && themeSearch.value) {
+        event.preventDefault();
+        themeQuery = '';
+        themeSearch.value = '';
+        renderThemes();
+      }
+    });
+  }
+  if (themeSearchClear) {
+    themeSearchClear.addEventListener('click', () => {
+      themeQuery = '';
+      if (themeSearch) {
+        themeSearch.value = '';
+        themeSearch.focus();
+      }
+      renderThemes();
+    });
+  }
+
   $('#adblock').addEventListener('change', async (event) => {
     const toggle = event.currentTarget;
     toggle.disabled = true;

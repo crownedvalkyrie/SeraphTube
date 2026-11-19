@@ -109,6 +109,9 @@ input.switch:disabled { opacity: .5; }
 .seg input:focus-visible + span { outline: 2px solid var(--st-accent); outline-offset: 1px; }
 
 /* ---- themes ----------------------------------------------------------------------------------- */
+.search-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.search-row input[type="search"] { flex: 1; min-width: 0; padding: 6px 12px; }
+.empty-themes { grid-column: 1 / -1; margin: 0; padding: 18px; text-align: center; color: var(--st-text-dim); background: var(--st-bg-elev); border: 1px dashed var(--st-border); border-radius: var(--st-radius); }
 .themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; margin-bottom: 4px; }
 .theme { display: grid; gap: 8px; padding: 10px; text-align: left; background: var(--st-bg-elev); border-radius: calc(var(--st-radius) + 2px); }
 .theme[aria-pressed="true"] { border-color: var(--st-accent); box-shadow: 0 0 0 1px var(--st-accent); }
