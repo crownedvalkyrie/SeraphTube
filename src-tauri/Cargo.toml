@@ -1,3 +1,4 @@
+
 [package]
 name = "seraphtube"
 version = "0.2.0"
@@ -8,31 +9,34 @@ rust-version = "1.77"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "=2.12.5", features = ["macos-private-api"] }  # transparent window + vibrancy (macOS)
-tauri-plugin-opener = "2"   # open external links and the themes folder in the default handler
+tauri = { version = "=2.12.5", features = ["macos-private-api"] }
+tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"            # settings file + content-rule JSON
-ureq = "2"                  # tiny blocking HTTPS client for list updates (no async runtime needed)
-regex = "1"                 # win_filter: URL-filter regexes (Windows request matcher)
-aho-corasick = "1"          # win_filter: literal prefilter so each request checks only a few rules
+serde_json = "1"
+ureq = "2"
+regex = "1"
+aho-corasick = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-# Tauri doesn't expose WKContentRuleList: this is the native network-blocking path.
 objc2 = "0.6"
 objc2-foundation = "0.3"
 objc2-web-kit = "0.3"
 block2 = "0.6"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-# WebView2 request hook. These MUST resolve to the same versions Tauri/wry already use,
-# otherwise the COM types differ and nothing links. Check with:
-#   cargo tree -i webview2-com   and   cargo tree -i windows
-# and copy those versions here (Tauri 2.6+ was on webview2-com 0.38 / windows 0.61).
-webview2-com = "0.38"
-windows = { version = "0.61", features = ["Win32_System_Com"] }
+webview2-com = "0.39"
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Ole",
+    "Win32_System_LibraryLoader",
+    "Win32_UI",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Graphics_Gdi",
+] }
 
 [profile.release]
-opt-level = 3      # speed over size: the matcher and rule parsing are hot paths
+opt-level = 3
 lto = "fat"
 codegen-units = 1
 panic = "abort"
