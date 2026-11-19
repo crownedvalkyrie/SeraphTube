@@ -1,0 +1,13 @@
+[Adblock Plus 2.0]
+! Title: Google ad servers (stricter)
+! Google's own ad and measurement hosts. Off by default: YouTube's player talks to
+! some of these, and blocking them is more likely to make YouTube slow playback
+! down when it notices. Turn on if you still see ads that the core list misses.
+||doubleclick.net^
+||googlesyndication.com^
+||googleadservices.com^
+||googletagservices.com^
+||adservice.google.com^
+||imasdk.googleapis.com^
+||google-analytics.com^
+||analytics.google.com^

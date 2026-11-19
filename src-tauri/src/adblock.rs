@@ -1,70 +1,78 @@
+// EasyList-syntax filter lists -> WebKit-format content rules.
+//   macOS:   WKContentRuleList                       (install_native, objc2)
+//   Windows: WebView2 WebResourceRequested hook fed by the same JSON (win_filter.rs)
+// Only the bundled lists feed the page-level JS layer (see Out::js), which keeps the
+// per-page payload tiny.
+
 use crate::settings::{config_dir, AppState, FilterList};
+
 use serde_json::{json, Value};
+
 use std::{
     collections::HashSet,
     fs,
     io::Read,
     path::PathBuf,
-    sync::atomic::Ordering,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, OnceLock,
+    },
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+
 use tauri::{AppHandle, Manager, WebviewWindow};
 
-#[cfg(target_os = "linux")]
-use std::sync::{Arc, Mutex};
+const CORE: &str = include_str!("../filters/core.txt");
+const GOOGLE_ADS: &str = include_str!("../filters/google-ads.txt");
 
-#[cfg(target_os = "linux")]
-type NativeCompletion = Arc<Mutex<Option<Box<dyn FnOnce(bool) + Send>>>>;
-
-#[cfg(target_os = "linux")]
-fn complete_linux(done: &NativeCompletion, success: bool) {
-    if let Ok(mut slot) = done.lock() {
-        if let Some(callback) = slot.take() {
-            callback(success);
-        }
-    }
-}
-
-const CORE: &str = include_str!("../filters/default.txt");
-const MAX_RULES: usize = 40_000;
-const MAX_EXCEPTIONS: usize = 10_000;
-const MAX_HOSTS: usize = 30_000;
-const MAX_NEEDLES: usize = 1_000;
-const MAX_PATTERN_LENGTH: usize = 2048;
-const START_URL: &str = "https://www.youtube.com/";
-const STALE_SECS: u64 = 7 * 86_400;
+const MAX_RULES: usize = 140_000;
 const MAX_LIST_BYTES: u64 = 32_000_000;
 
-const NEVER_HOST: &[&str] = &[
-    // Core YouTube, player, image, video and Google API hosts must not be
-    // added to the broad JavaScript fallback block set.
+const START_URL: &str = "https://www.youtube.com/";
+const STALE_SECS: u64 = 7 * 86_400;
+
+/// Hosts that make up YouTube itself. Nothing here is ever blocked at the network
+/// layer: thumbnails and video come from ytimg/googlevideo, and YouTube's ad and
+/// telemetry endpoints must keep answering normally (failed requests there are one
+/// of the signals behind the "Experiencing interruptions?" slowdown). Ads are removed
+/// from the data and the DOM instead (shell.js).
+pub const FIRST_PARTY: &[&str] = &[
     "youtube.com",
     "youtube-nocookie.com",
     "youtubei.googleapis.com",
-    "google.com",
-    "googleapis.com",
+    "googlevideo.com",
+    "ytimg.com",
+    "ggpht.com",
     "googleusercontent.com",
+    "gstatic.com",
+];
+
+const NEVER_HOST: &[&str] = &[
+    "youtube.com",
+    "google.com",
     "gstatic.com",
     "googlevideo.com",
     "ytimg.com",
 ];
 
-// Use the cross-version WebKit content-extension resource types. Newer
-// Safari/WebKit builds expose more granular types (fetch, websocket, etc.),
-// but older Linux WebKitGTK installations only accept this common subset.
-// Map the newer ABP request types to `raw` below so one list compiles on both.
-// ABP's negative resource-type options are converted against this same set.
-const WEBKIT_RESOURCE_TYPES: &[&str] = &[
-    "document",
-    "image",
-    "style-sheet",
-    "script",
-    "font",
-    "raw",
-    "svg-document",
-    "media",
-    "popup",
-];
+/// Values stored in `AppState::native` (shown on the settings page).
+const NATIVE_OK: u8 = if cfg!(windows) { 5 } else { 2 };
+const NATIVE_FAIL: u8 = 3;
+
+/// Set once the main window has left the splash page.
+static NAVIGATED: AtomicBool = AtomicBool::new(false);
+/// When the splash first appeared (the intro animation is timed from here).
+static STARTED: OnceLock<Instant> = OnceLock::new();
+/// Minimum time on the splash while the intro animation is enabled.
+/// This matches the 0.85 animation scale in splash.html.
+/// Minimum time on the splash while the intro animation is enabled.
+const INTRO_MS: u64 = 4000;
+
+/// Fade-out before YouTube loads.
+const OUTRO_MS: u64 = 500;
+
+/// Never leave the user on the splash indefinitely if rule setup stalls.
+const STARTUP_WATCHDOG_SECS: u64 = 10;
 
 #[derive(Default, Clone)]
 pub struct Compiled {
@@ -76,12 +84,12 @@ pub struct Compiled {
 #[derive(Default)]
 struct Out {
     blocks: Vec<Value>,
+    cosm: Vec<Value>,
     exc: Vec<Value>,
     hosts: HashSet<String>,
     needles: HashSet<String>,
-    // Lists frequently repeat identical network rules. Deduplicate before
-    // handing the rules to WebKit so compilation and memory use stay bounded.
-    seen: HashSet<String>,
+    /// Collect host/needle sets for the page-level JS layer (bundled lists only).
+    js: bool,
 }
 
 pub fn now() -> u64 {
@@ -95,49 +103,35 @@ fn filters_dir(app: &AppHandle) -> PathBuf {
     config_dir(app).join("filters")
 }
 
-fn res_type(option: &str) -> Option<&'static str> {
-    Some(match option {
+fn res_type(o: &str) -> Option<&'static str> {
+    Some(match o {
         "script" => "script",
         "image" => "image",
-        "stylesheet" | "style-sheet" => "style-sheet",
+        "stylesheet" => "style-sheet",
         "font" => "font",
         "media" => "media",
-        "document" | "subdocument" => "document",
-        "object" | "object-subrequest" => "raw",
-        // The common WebKit content-extension format has one `raw` bucket
-        // for XHR/fetch/beacon/socket/other untyped resource requests.
-        "xmlhttprequest" | "xhr" | "fetch" | "ping" | "websocket" | "other" | "csp-report" => "raw",
-        "popup" => "popup",
-        "svg-document" => "svg-document",
+        "subdocument" => "document",
+        "xmlhttprequest" | "xhr" | "ping" => "raw",
         _ => return None,
     })
 }
 
-/// Convert an ABP pattern to a WebKit-compatible regex.
-///
-/// Avoid regex alternation (`|`) because WebKit's content blocker
-/// parser does not support disjunctions.
-fn to_regex(pattern: &str) -> Option<String> {
-    if pattern.is_empty() || pattern.len() > MAX_PATTERN_LENGTH {
+/// Convert an ABP pattern into a WebKit URL-filter regular expression.
+fn to_regex(p: &str) -> Option<String> {
+    if p.starts_with('/') && p.ends_with('/') && p.len() > 2 {
+        // Regular-expression filter syntax is not directly compatible.
         return None;
     }
 
-    // ABP regular-expression rules are unsupported.
-    if pattern.starts_with('/') && pattern.ends_with('/') && pattern.len() > 2 {
-        return None;
-    }
-
-    let mut s = pattern;
+    let mut s = p;
     let mut re = String::new();
 
-    // Domain-anchored rule.
-    if let Some(rest) = s.strip_prefix("||") {
-        // Match a URL scheme and optional subdomain without alternation.
-        re.push_str("^[^:]+://([^/]+\\.)?");
-        s = rest;
-    } else if let Some(rest) = s.strip_prefix('|') {
+    if let Some(r) = s.strip_prefix("||") {
+        re.push_str("^[^:]+:(//)?([^/]+\\.)?");
+        s = r;
+    } else if let Some(r) = s.strip_prefix('|') {
         re.push('^');
-        s = rest;
+        s = r;
     }
 
     let end = s.ends_with('|');
@@ -146,13 +140,17 @@ fn to_regex(pattern: &str) -> Option<String> {
         s = &s[..s.len() - 1];
     }
 
+    let tail_sep = s.ends_with('^');
+
+    if tail_sep {
+        s = &s[..s.len() - 1];
+    }
+
     for c in s.chars() {
         match c {
             '*' => re.push_str(".*"),
 
-            // ABP separator: use a negated character class.
-            // The end-of-string alternative is intentionally omitted.
-            '^' => re.push_str("[^a-zA-Z0-9_.%\\-]"),
+            '^' => re.push_str("[/:&?=]"),
 
             '.' | '+' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '\\' | '|' | '$' => {
                 re.push('\\');
@@ -167,197 +165,180 @@ fn to_regex(pattern: &str) -> Option<String> {
         }
     }
 
-    if end {
+    if tail_sep {
+        re.push_str("([/:&?].*)?$");
+    } else if end {
         re.push('$');
     }
 
-    if re.is_empty() || re.len() > MAX_PATTERN_LENGTH * 4 {
-        return None;
+    if re.is_empty() {
+        None
+    } else {
+        Some(re)
     }
-
-    Some(re)
 }
 
-fn valid_domain(domain: &str) -> bool {
-    !domain.is_empty()
-        && domain.len() <= 253
-        && domain
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '*')
+/// True for `||youtube.com/...`-style patterns aimed at YouTube's own hosts.
+fn targets_first_party(pat: &str) -> bool {
+    let Some(rest) = pat.strip_prefix("||") else {
+        return false;
+    };
+    let host: String = rest
+        .chars()
+        .take_while(|c| !matches!(c, '/' | '^' | '*' | '?' | ':' | '|' | '$'))
+        .collect::<String>()
+        .to_ascii_lowercase();
+    FIRST_PARTY
+        .iter()
+        .any(|d| host == *d || host.ends_with(&format!(".{d}")))
 }
 
-fn convert(rule: &str, out: &mut Out, compile_native: bool) {
-    let raw_rule = rule;
-    let (exception, rule) = match rule.strip_prefix("@@") {
+/// `ignore-previous-rules` entries that shield YouTube's own hosts from every
+/// earlier block rule, including generic EasyList path patterns. WebKit content
+/// rules have no alternation, so there is one rule per host.
+fn first_party_exceptions() -> Vec<Value> {
+    FIRST_PARTY
+        .iter()
+        .map(|d| {
+            json!({
+                "trigger": { "url-filter": format!("^[^:]+:(//)?([^/]+\\.)?{}", d.replace('.', "\\.")) },
+                "action": { "type": "ignore-previous-rules" }
+            })
+        })
+        .collect()
+}
+
+/// Convert an ABP rule into a WebKit content blocker rule.
+fn convert(rule: &str, out: &mut Out) {
+    let (exc, rule) = match rule.strip_prefix("@@") {
         Some(r) => (true, r),
         None => (false, rule),
     };
 
-    let (pattern, options) = match rule.rfind('$') {
+    let (pat, opts) = match rule.rfind('$') {
         Some(i) => (&rule[..i], &rule[i + 1..]),
         None => (rule, ""),
     };
 
-    if pattern.is_empty() {
-        return;
-    }
+    let mut types: Vec<&'static str> = Vec::new();
+    let mut third: Option<&str> = None;
 
-    let mut types: Vec<&str> = Vec::new();
-    let mut excluded_types: Vec<&str> = Vec::new();
-    let mut third_party: Option<&str> = None;
     let mut yes: Vec<String> = Vec::new();
     let mut no: Vec<String> = Vec::new();
 
-    for option in options.split(',').filter(|o| !o.is_empty()) {
-        match option {
+    let mut case_sensitive = false;
+
+    for o in opts.split(',').filter(|o| !o.is_empty()) {
+        match o {
             "third-party" | "3p" => {
-                third_party = Some("third-party");
+                third = Some("third-party");
             }
 
             "~third-party" | "~3p" => {
-                third_party = Some("first-party");
+                third = Some("first-party");
             }
 
-            "important" | "match-case" => {}
+            "important" => {
+                // WebKit does not provide an equivalent priority option.
+            }
 
-            _ if option.starts_with("domain=") => {
-                for domain in option[7..].split('|') {
-                    if let Some(domain) = domain.strip_prefix('~') {
-                        if valid_domain(domain) {
-                            no.push(format!("*{}", domain));
+            "match-case" => {
+                case_sensitive = true;
+            }
+
+            _ if o.starts_with("domain=") => {
+                for d in o[7..].split('|') {
+                    if d.is_empty() {
+                        continue;
+                    }
+
+                    match d.strip_prefix('~') {
+                        Some(x) => {
+                            no.push(format!("*{x}"));
                         }
-                    } else if valid_domain(domain) {
-                        yes.push(format!("*{}", domain));
+
+                        None => {
+                            yes.push(format!("*{d}"));
+                        }
                     }
                 }
             }
 
-            _ => {
-                let (negated, resource_option) = match option.strip_prefix('~') {
-                    Some(value) => (true, value),
-                    None => (false, option),
-                };
-                match res_type(resource_option) {
-                    Some(resource_type) if negated => {
-                        if !excluded_types.contains(&resource_type) {
-                            excluded_types.push(resource_type);
-                        }
-                    }
-                    Some(resource_type) => {
-                        if !types.contains(&resource_type) {
-                            types.push(resource_type);
-                        }
-                    }
-                    None => return,
+            _ => match res_type(o) {
+                Some(t) => types.push(t),
+                None => {
+                    // Unsupported options are skipped rather than
+                    // generating incorrect blocking rules.
+                    return;
                 }
-            }
+            },
         }
     }
 
-    // Translate ABP's negative type options into a WebKit resource-type set.
-    // An empty result means the rule can never match a supported request.
-    if !excluded_types.is_empty() {
-        let candidates: Vec<&str> = if types.is_empty() {
-            WEBKIT_RESOURCE_TYPES.to_vec()
-        } else {
-            types.clone()
-        };
-        types = candidates
-            .into_iter()
-            .filter(|resource_type| !excluded_types.contains(resource_type))
-            .collect();
-        if types.is_empty() {
-            return;
-        }
-    }
-
-    // The YouTube wrapper only loads YouTube as its top-level site. A plain
-    // host/path rule marked third-party is therefore safe to apply to the
-    // fetch/XHR/beacon paths seen by the injected fallback. First-party and
-    // domain-constrained rules stay native-only to avoid false positives.
-    let js_visible_types =
-        types.is_empty() || types.iter().all(|resource_type| *resource_type == "raw");
-    if js_visible_types
-        && yes.is_empty()
-        && no.is_empty()
-        && third_party != Some("first-party")
-        && !exception
-    {
-        if let Some(body) = pattern.strip_prefix("||") {
-            if let Some(host) = body.strip_suffix('^') {
-                let host = host.to_lowercase();
-
-                if valid_domain(&host)
-                    && !host.contains('*')
-                    && !NEVER_HOST.contains(&host.as_str())
-                    && out.hosts.len() < MAX_HOSTS
-                {
-                    out.hosts.insert(host);
-                }
-            } else if body.len() >= 8
-                && body.contains('/')
-                && !body.chars().any(|c| matches!(c, '|' | '*' | '^'))
-            {
-                if out.needles.len() < MAX_NEEDLES {
-                    out.needles.insert(body.to_ascii_lowercase());
-                }
-            }
-        } else if pattern.len() >= 8
-            && pattern.starts_with('/')
-            && !pattern.chars().any(|c| matches!(c, '|' | '*' | '^'))
-        {
-            if out.needles.len() < MAX_NEEDLES {
-                out.needles.insert(pattern.to_ascii_lowercase());
-            }
-        }
-    }
-
-    if !compile_native {
+    // WebKit's if-domain and unless-domain conditions cannot safely
+    // represent ABP rules containing both positive and negative domains.
+    // Skip these rules rather than accidentally overblocking.
+    if !yes.is_empty() && !no.is_empty() {
         return;
     }
 
-    let Some(regex) = to_regex(pattern) else {
+    // Never emit network rules that target YouTube's own infrastructure.
+    if targets_first_party(pat) {
+        return;
+    }
+
+    let Some(re) = to_regex(pat) else {
         return;
     };
 
+    // Collect host and path patterns for the JavaScript counting layer.
+    if out.js && types.is_empty() && yes.is_empty() && no.is_empty() && third.is_none() && !exc {
+        if let Some(b) = pat.strip_prefix("||") {
+            if let Some(h) = b.strip_suffix('^') {
+                let host = h.to_ascii_lowercase();
+
+                if !host.is_empty()
+                    && host
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+                    && !NEVER_HOST.contains(&host.as_str())
+                {
+                    out.hosts.insert(host);
+                }
+            } else if b.len() >= 8 && b.contains('/') && !b.contains(['|', '*', '^']) {
+                out.needles.insert(b.to_string());
+            }
+        } else if pat.len() >= 8 && pat.starts_with('/') && !pat.contains(['|', '*', '^']) {
+            out.needles.insert(pat.to_string());
+        }
+    }
+
     let mut trigger = json!({
-        "url-filter": regex
+        "url-filter": re
     });
 
     if !types.is_empty() {
         trigger["resource-type"] = json!(types);
     }
 
-    if let Some(load_type) = third_party {
+    if let Some(load_type) = third {
         trigger["load-type"] = json!([load_type]);
     }
 
     if !yes.is_empty() {
         trigger["if-domain"] = json!(yes);
-    }
-
-    if !no.is_empty() {
+    } else if !no.is_empty() {
         trigger["unless-domain"] = json!(no);
     }
 
-    // Bound allocations while parsing untrusted filter lists. Exceptions are
-    // retained separately so a large block list cannot crowd them out.
-    if (exception && out.exc.len() >= MAX_EXCEPTIONS)
-        || (!exception && out.blocks.len() >= MAX_RULES)
-    {
-        return;
+    if case_sensitive {
+        trigger["url-filter-is-case-sensitive"] = json!(true);
     }
 
-    // A compact source-line key is cheaper to retain than serializing every
-    // generated JSON rule into a second long-lived HashSet allocation.
-    if !out.seen.insert(raw_rule.to_string()) {
-        return;
-    }
-
-    let generated = json!({
+    let result = json!({
         "trigger": trigger,
         "action": {
-            "type": if exception {
+            "type": if exc {
                 "ignore-previous-rules"
             } else {
                 "block"
@@ -365,124 +346,127 @@ fn convert(rule: &str, out: &mut Out, compile_native: bool) {
         }
     });
 
-    if exception {
-        out.exc.push(generated);
+    if exc {
+        out.exc.push(result);
     } else {
-        out.blocks.push(generated);
+        out.blocks.push(result);
     }
 }
 
-/// Parse ABP filters. Cosmetic selectors are intentionally skipped.
-fn parse(text: &str, out: &mut Out, compile_native: bool) {
+/// Parse EasyList / EasyPrivacy filter-list contents.
+fn parse(text: &str, cosmetic_ok: bool, out: &mut Out) {
     for line in text.lines().map(str::trim) {
         if line.is_empty() || line.starts_with('!') || line.starts_with('[') {
             continue;
         }
 
-        if line.contains("##")
-            || line.contains("#@#")
-            || line.contains("#?#")
-            || line.contains("#$#")
-            || line.contains("#%#")
+        if let Some(i) = line.find("##") {
+            // Cosmetic rules are accepted only from the bundled list.
+            if !cosmetic_ok {
+                continue;
+            }
+
+            let (doms, sel) = (&line[..i], &line[i + 2..]);
+
+            if sel.is_empty()
+                || doms.contains('~')
+                || sel.contains(":-abp")
+                || sel.contains(":has-text")
+                || sel.contains(":xpath")
+                || sel.contains("+js(")
+                || sel.starts_with('^')
+            {
+                continue;
+            }
+
+            let mut trigger = json!({
+                "url-filter": ".*"
+            });
+
+            let domains: Vec<String> = doms
+                .split(',')
+                .filter(|d| !d.is_empty())
+                .map(|d| format!("*{d}"))
+                .collect();
+
+            if !domains.is_empty() {
+                trigger["if-domain"] = json!(domains);
+            }
+
+            out.cosm.push(json!({
+                "trigger": trigger,
+                "action": {
+                    "type": "css-display-none",
+                    "selector": sel
+                }
+            }));
+        } else if ["#@#", "#?#", "#$#", "#%#"]
+            .iter()
+            .any(|m| line.contains(m))
         {
             continue;
+        } else {
+            convert(line, out);
         }
-
-        convert(line, out, compile_native);
     }
 }
 
-/// Build native rules. The bundled core is always parsed independently
-/// of saved settings. Remote lists are loaded only when enabled.
-fn build(app: &AppHandle, lists: &[&FilterList], compile_native: bool) -> (String, Compiled) {
+/// Compile enabled filter lists.
+///
+/// IMPORTANT: This accepts owned FilterList references only for the
+/// duration of compilation. No references escape this function.
+fn build(app: &AppHandle, lists: &[FilterList]) -> (String, Compiled) {
     let mut out = Out::default();
 
-    eprintln!(
-        "[adblock] Loading bundled core filters: {} bytes",
-        CORE.len()
-    );
-
-    parse(CORE, &mut out, compile_native);
-
-    eprintln!(
-        "[adblock] Bundled core produced {} blocking rules",
-        out.blocks.len()
-    );
-
-    // Load enabled remote lists, but never load builtin a second time.
     for list in lists {
-        if list.builtin {
-            continue;
-        }
-
-        let path = filters_dir(app).join(format!("{}.txt", list.id));
-
-        match fs::read_to_string(&path) {
-            Ok(text) => {
-                let before = out.blocks.len() + out.exc.len();
-
-                parse(&text, &mut out, compile_native);
-
-                let after = out.blocks.len() + out.exc.len();
-
-                eprintln!(
-                    "[adblock] Loaded {}: {} additional rules",
-                    list.name,
-                    after.saturating_sub(before)
-                );
+        let text = if list.builtin {
+            match list.id.as_str() {
+                "core" => Some(CORE.to_string()),
+                "google-ads" => Some(GOOGLE_ADS.to_string()),
+                _ => None,
             }
+        } else {
+            fs::read_to_string(filters_dir(app).join(format!("{}.txt", list.id))).ok()
+        };
 
-            Err(error) => {
-                eprintln!("[adblock] Could not read {}: {}", list.name, error);
-            }
+        if let Some(text) = text {
+            out.js = list.builtin;
+            parse(&text, list.builtin, &mut out);
         }
     }
 
-    // Native rule JSON is built for the macOS and Linux WebKit content-filter
-    // engines. Windows currently uses the injected fallback and avoids the
-    // unnecessary cost of serializing a large native ruleset.
-    if compile_native {
-        out.exc.truncate(MAX_EXCEPTIONS);
+    // Reserve room for exceptions first.
+    // Exceptions must remain at the end of the rule array.
+    out.exc.truncate(MAX_RULES);
 
-        let room = MAX_RULES.saturating_sub(out.exc.len());
-        out.blocks.truncate(room);
-    }
+    let remaining = MAX_RULES.saturating_sub(out.exc.len() + FIRST_PARTY.len());
 
-    // WebKit exceptions must follow the rules they override.
-    let mut all = if compile_native {
-        out.blocks
-    } else {
-        Vec::new()
-    };
-    if compile_native {
-        all.extend(out.exc);
-    }
+    out.blocks.truncate(remaining);
+
+    let remaining = remaining.saturating_sub(out.blocks.len());
+
+    out.cosm.truncate(remaining);
+
+    // Order matters: blocks, then exceptions (they only cancel earlier rules),
+    // then cosmetic rules so no exception can cancel them.
+    let mut all = out.blocks;
+
+    all.extend(out.exc);
+    all.extend(first_party_exceptions());
+    all.extend(out.cosm);
 
     let native = all.len();
 
     let mut hosts: Vec<String> = out.hosts.into_iter().collect();
-    hosts.sort();
+    hosts.sort_unstable();
+    hosts.truncate(30_000);
 
     let mut needles: Vec<String> = out.needles.into_iter().collect();
-    needles.sort();
-
-    eprintln!(
-        "[adblock] Prepared {} native rules, {} hosts, {} needles",
-        native,
-        hosts.len(),
-        needles.len()
-    );
-
-    let json = if compile_native {
-        Value::Array(all).to_string()
-    } else {
-        String::new()
-    };
-
-    eprintln!("[adblock] Serialized rule list: {} bytes", json.len());
+    needles.sort_unstable();
+    needles.truncate(2_000);
 
     (
-        json,
+        Value::Array(all).to_string(),
         Compiled {
             hosts,
             needles,
@@ -491,178 +475,240 @@ fn build(app: &AppHandle, lists: &[&FilterList], compile_native: bool) -> (Strin
     )
 }
 
-/// Compile and attach rules to the main webview.
+/// Wrap a one-shot callback so it can be cloned into several closures and fires at
+/// most once, whichever path (success, failure, webview unavailable) gets there first.
+fn once<F: FnOnce(bool) + Send + 'static>(f: F) -> impl Fn(bool) + Clone + Send + Sync + 'static {
+    let slot = Arc::new(Mutex::new(Some(f)));
+    move |ok| {
+        if let Some(f) = slot.lock().unwrap().take() {
+            f(ok);
+        }
+    }
+}
+
+/// What to do with the page once new rules are attached.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// First run: leave the splash and load YouTube.
+    Start,
+    /// User changed something: reload so the rules cover the whole page.
+    Reload,
+    /// Background refresh: swap rules in place, leave the page alone.
+    Silent,
+}
+
+/// Leave the splash on a worker thread so a webview callback never has to sleep.
+/// `elapsed_ms` is measured from startup, so a slow rule build does not add another
+/// full intro delay after the watchdog fires.
+fn leave_splash(window: WebviewWindow, intro: bool, elapsed_ms: u64) {
+    let wait = if intro {
+        INTRO_MS.saturating_sub(elapsed_ms)
+    } else {
+        0
+    };
+    std::thread::spawn(move || {
+        if wait > 0 {
+            std::thread::sleep(Duration::from_millis(wait));
+        }
+        if intro {
+            if let Err(error) = window.eval("document.body&&document.body.classList.add('out')") {
+                eprintln!("[startup] could not start splash fade-out: {error}");
+            }
+            std::thread::sleep(Duration::from_millis(OUTRO_MS));
+        }
+        if let Err(error) = window.eval(&format!("location.replace({})", json!(START_URL))) {
+            eprintln!("[startup] could not navigate to YouTube: {error}");
+        }
+    });
+}
+
+/// Record the engine status, then act on the page according to `mode`.
+fn settle(app: &AppHandle, window: &WebviewWindow, on: bool, ok: bool, mode: Mode) {
+    app.state::<AppState>().native.store(
+        if !on {
+            0
+        } else if ok {
+            NATIVE_OK
+        } else {
+            NATIVE_FAIL
+        },
+        Ordering::Relaxed,
+    );
+
+    match mode {
+        Mode::Start => {
+            if !NAVIGATED.swap(true, Ordering::AcqRel) {
+                let intro = app.state::<AppState>().settings.lock().unwrap().intro;
+                let elapsed = STARTED.get().map_or(0, |t| t.elapsed().as_millis() as u64);
+                eprintln!("[startup] native rules ready (ok={ok}); leaving splash");
+                leave_splash(window.clone(), intro, elapsed);
+            }
+        }
+        Mode::Reload => {
+            let _ = window.eval("location.reload()");
+        }
+        Mode::Silent => {}
+    }
+}
+
+/// If rule compilation or native installation stalls, don't leave the user on the splash.
+/// This is armed before compilation starts, not after it finishes.
+fn arm_watchdog(app: &AppHandle, window: &WebviewWindow) {
+    let (app, window) = (app.clone(), window.clone());
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(STARTUP_WATCHDOG_SECS));
+        if !NAVIGATED.swap(true, Ordering::AcqRel) {
+            let blocking_on = app.state::<AppState>().settings.lock().unwrap().adblock;
+            let native_status = if blocking_on { NATIVE_FAIL } else { 0 };
+            app.state::<AppState>()
+                .native
+                .store(native_status, Ordering::Relaxed);
+            let intro = app.state::<AppState>().settings.lock().unwrap().intro;
+            let elapsed = STARTED.get().map_or(0, |t| t.elapsed().as_millis() as u64);
+            eprintln!(
+                "[startup] filter setup exceeded {STARTUP_WATCHDOG_SECS} s; continuing to YouTube"
+            );
+            leave_splash(window, intro, elapsed);
+        }
+    });
+}
+
+/// Compile the enabled lists and attach them to the main webview.
+///
+/// First run: the window sits on a tiny splash page until the rules are attached, then
+/// navigates to YouTube exactly once (no load-then-reload). If large optional lists are
+/// enabled, the bundled subset is attached first and the full set is swapped in
+/// afterwards, so startup never waits on a big compile.
 pub fn rebuild(app: &AppHandle, first: bool) {
+    rebuild_with(app, if first { Mode::Start } else { Mode::Reload });
+}
+
+pub fn rebuild_with(app: &AppHandle, mode: Mode) {
+    let first = mode == Mode::Start;
+    if first {
+        let _ = STARTED.set(Instant::now());
+    }
     let app = app.clone();
 
     std::thread::spawn(move || {
-        let state = app.state::<AppState>();
-
-        let settings = state.settings.lock().unwrap().clone();
-        let enabled_adblock = settings.adblock;
-
-        eprintln!("[adblock] Adblock enabled: {}", enabled_adblock);
-
-        for list in &settings.lists {
-            eprintln!(
-                "[adblock] Filter: id={}, builtin={}, enabled={}",
-                list.id, list.builtin, list.enabled
-            );
+        // Arm the fallback as soon as the worker starts. Filter parsing can be slow
+        // when users enable large remote lists, so it must not happen before the timer.
+        let Some(window) = app.get_webview_window("main") else {
+            eprintln!("[startup] main webview was unavailable during filter setup");
+            return;
+        };
+        if first {
+            arm_watchdog(&app, &window);
         }
 
-        let enabled: Vec<&FilterList> = settings
+        let st = app.state::<AppState>();
+        let settings = st.settings.lock().unwrap().clone();
+        let on = settings.adblock;
+
+        let enabled: Vec<FilterList> = settings
             .lists
             .iter()
-            .filter(|l| l.enabled && !l.builtin)
+            .filter(|l| l.enabled)
+            .cloned()
             .collect();
+        let core: Vec<FilterList> = enabled.iter().filter(|l| l.builtin).cloned().collect();
+        let has_extra = enabled.iter().any(|l| !l.builtin);
 
-        let native_supported = cfg!(any(target_os = "macos", target_os = "linux"));
-        let (full, safe, compiled) = if enabled_adblock {
-            let (full_json, compiled) = build(&app, &enabled, native_supported);
-
-            #[cfg(any(target_os = "macos", target_os = "linux"))]
-            let safe_json = Some(build(&app, &[], true).0);
-            #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-            let safe_json: Option<String> = None;
-
-            (
-                if native_supported {
-                    Some(full_json)
-                } else {
-                    None
-                },
-                safe_json,
-                compiled,
-            )
+        let (full_json, core_json, compiled) = if on {
+            let (full, compiled) = build(&app, &enabled);
+            let core_json = has_extra.then(|| build(&app, &core).0);
+            (Some(full), core_json, compiled)
         } else {
             (None, None, Compiled::default())
         };
 
-        *state.rules.lock().unwrap() = compiled;
-
-        state
-            .native
-            .store(if enabled_adblock { 1 } else { 0 }, Ordering::Relaxed);
-
+        *st.rules.lock().unwrap() = compiled;
+        st.native.store(if on { 1 } else { 0 }, Ordering::Relaxed);
         crate::push_state(&app);
 
-        let Some(window) = app.get_webview_window("main") else {
-            eprintln!("[adblock] Main webview not found");
-            return;
-        };
-
-        // Windows uses the injected request fallback; never report a no-op
-        // native installer as success. macOS and Linux attach WebKit rules.
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-        {
-            state
-                .native
-                .store(if enabled_adblock { 4 } else { 0 }, Ordering::Relaxed);
-            crate::push_state(&app);
-
-            if first && enabled_adblock {
-                let _ = window.eval(&format!("location.replace('{}')", START_URL));
-            } else if !first {
-                let _ = window.eval("location.reload()");
-            }
+        // Blocking off: detach any rules, then continue.
+        if !on {
+            let (a, w) = (app.clone(), window.clone());
+            install_native(&window, None, move |ok| settle(&a, &w, false, ok, mode));
             return;
         }
 
-        let (app1, window1) = (app.clone(), window.clone());
-
-        let finish = move |success: bool| {
-            app1.state::<AppState>().native.store(
-                if !enabled_adblock {
-                    0
-                } else if success {
-                    2
-                } else {
-                    3
-                },
-                Ordering::Relaxed,
-            );
-
-            match (first, enabled_adblock) {
-                (true, true) => {
-                    let _ = window1.eval(&format!("location.replace('{}')", START_URL));
-                }
-                (true, false) => {}
-                (false, _) => {
-                    let _ = window1.eval("location.reload()");
-                }
-            }
-        };
-
-        let fallback_window = window.clone();
-        let app_for_install = app.clone();
-        let app_for_closure = app_for_install.clone();
-
-        install_native(&app_for_install, &window, full, move |success| {
-            if success {
-                eprintln!("[adblock] Full rule set compiled successfully");
-                finish(true);
-            } else {
-                eprintln!("[adblock] Full rules rejected. Trying bundled core.");
-
-                let app_for_fallback = app_for_closure.clone();
-                install_native(
-                    &app_for_fallback,
-                    &fallback_window,
-                    safe,
-                    move |fallback_success| {
-                        if fallback_success {
-                            eprintln!("[adblock] Core rules compiled successfully");
-                        } else {
-                            eprintln!("[adblock] ERROR: Core rules also failed");
+        // First run with big optional lists: go live on the bundled rules, then upgrade.
+        if first && core_json.is_some() {
+            let (a, w) = (app.clone(), window.clone());
+            install_native(&window, core_json, move |ok| {
+                settle(&a, &w, true, ok, mode);
+                std::thread::spawn(move || {
+                    let a2 = a.clone();
+                    install_native(&w, full_json, move |ok_full| {
+                        if ok_full {
+                            a2.state::<AppState>()
+                                .native
+                                .store(NATIVE_OK, Ordering::Relaxed);
                         }
+                    });
+                });
+            });
+            return;
+        }
 
-                        finish(fallback_success);
-                    },
-                );
+        // Normal path: full set, falling back to the bundled subset if it is rejected.
+        let (a, w) = (app.clone(), window.clone());
+        install_native(&window, full_json, move |ok| {
+            if ok {
+                settle(&a, &w, true, true, mode);
+                return;
+            }
+            match core_json {
+                Some(core) => {
+                    eprintln!("[adblock] Full rule set rejected; falling back to bundled filters");
+                    let (a2, w2) = (a.clone(), w.clone());
+                    install_native(&w, Some(core), move |ok2| settle(&a2, &w2, true, ok2, mode));
+                }
+                None => settle(&a, &w, true, false, mode),
             }
         });
-    }); // <-- Closes std::thread::spawn(move || {
-} // <-- Closes pub fn rebuild(...)
+    });
+}
 
+/// Install native WebKit content rules on macOS.
 #[cfg(target_os = "macos")]
 fn install_native(
-    _app: &AppHandle,
     window: &WebviewWindow,
     json: Option<String>,
     done: impl FnOnce(bool) + Send + 'static,
 ) {
-    let _ = window.with_webview(move |platform_webview| unsafe {
+    let done = once(done);
+    let done_in_webview = done.clone();
+
+    let result = window.with_webview(move |platform_webview| unsafe {
         use block2::RcBlock;
         use objc2::{rc::Retained, MainThreadMarker};
         use objc2_foundation::{NSError, NSString};
         use objc2_web_kit::{WKContentRuleList, WKContentRuleListStore, WKUserContentController};
+
+        let done = done_in_webview;
 
         let Some(controller) = Retained::retain(
             platform_webview
                 .controller()
                 .cast::<WKUserContentController>(),
         ) else {
-            eprintln!("[adblock] Could not obtain WKUserContentController");
             done(false);
             return;
         };
 
+        controller.removeAllContentRuleLists();
+
         let Some(json) = json else {
-            controller.removeAllContentRuleLists();
+            // Blocking disabled.
             done(true);
             return;
         };
 
-        if json == "[]" {
-            controller.removeAllContentRuleLists();
-            eprintln!("[adblock] No native rules available; skipping compilation");
-            done(true);
-            return;
-        }
-
         let Some(store) = WKContentRuleListStore::defaultStore(MainThreadMarker::new_unchecked())
         else {
-            eprintln!("[adblock] Could not initialize WKContentRuleListStore");
+            eprintln!("[adblock] Failed to initialize WKContentRuleListStore");
             done(false);
             return;
         };
@@ -670,211 +716,132 @@ fn install_native(
         let identifier = NSString::from_str("seraphtube-rules");
         let source = NSString::from_str(&json);
 
-        let done = std::cell::Cell::new(Some(done));
-
-        let block = RcBlock::new(move |list: *mut WKContentRuleList, error: *mut NSError| {
+        let callback = RcBlock::new(move |list: *mut WKContentRuleList, error: *mut NSError| {
             let success = match (list.as_ref(), error.as_ref()) {
-                (Some(rule_list), None) => {
-                    // Keep the current rules live until the replacement
-                    // list has compiled successfully.
-                    controller.removeAllContentRuleLists();
-                    controller.addContentRuleList(rule_list);
+                (Some(list), None) => {
+                    controller.addContentRuleList(list);
                     true
                 }
-
                 (_, Some(error)) => {
                     eprintln!(
-                        "[adblock] WebKit compilation failed: {}",
+                        "[adblock] Native compilation error: {}",
                         error.localizedDescription()
                     );
-
-                    eprintln!(
-                        "[adblock] NSError domain: {}, code: {}",
-                        error.domain(),
-                        error.code()
-                    );
-
                     false
                 }
-
-                _ => {
-                    eprintln!("[adblock] WebKit returned no rule list and no error");
-                    false
-                }
+                _ => false,
             };
-
-            if let Some(callback) = done.take() {
-                callback(success);
-            }
+            done(success);
         });
 
         store.compileContentRuleListForIdentifier_encodedContentRuleList_completionHandler(
             Some(&identifier),
             Some(&source),
-            Some(&*block),
+            Some(&*callback),
         );
     });
+
+    if let Err(error) = result {
+        eprintln!("[adblock] Failed to access native webview: {error}");
+        done(false);
+    }
 }
 
-#[cfg(target_os = "linux")]
+/// Install request filtering on Windows (WebView2).
+///
+/// The matcher is built here, off the main thread, so the main thread only has to
+/// attach the handler once; later rebuilds just swap the matcher.
+#[cfg(target_os = "windows")]
 fn install_native(
-    app: &AppHandle,
     window: &WebviewWindow,
     json: Option<String>,
     done: impl FnOnce(bool) + Send + 'static,
 ) {
-    use std::fs;
-    use webkit2gtk::{prelude::*, UserContentFilterStore};
+    use crate::win_filter::{native, Matcher};
 
-    let store_dir = filters_dir(app).join("webkit-filter-store");
-    if let Err(error) = fs::create_dir_all(&store_dir) {
-        eprintln!("[adblock] Could not create WebKit filter store: {error}");
-        done(false);
-        return;
-    }
-    let store_path = store_dir.to_string_lossy().into_owned();
+    let done = once(done);
 
-    let completion: NativeCompletion = Arc::new(Mutex::new(Some(Box::new(done))));
-    let callback_completion = completion.clone();
-    let result = window.with_webview(move |platform_webview| {
-        let Some(manager) = platform_webview.inner().user_content_manager() else {
-            eprintln!("[adblock] Linux WebKit view has no user content manager");
-            complete_linux(&callback_completion, false);
-            return;
-        };
-
-        let Some(json) = json else {
-            manager.remove_all_filters();
-            complete_linux(&callback_completion, true);
-            return;
-        };
-        if json == "[]" {
-            manager.remove_all_filters();
-            complete_linux(&callback_completion, true);
-            return;
-        }
-
-        let store = UserContentFilterStore::new(&store_path);
-        let source = webkit2gtk::glib::Bytes::from(json.as_bytes());
-        let async_completion = callback_completion.clone();
-
-        webkit2gtk::glib::MainContext::default().spawn_local(async move {
-            match store.save_future("seraphtube-rules", &source).await {
-                Ok(filter) => {
-                    // Keep the currently active filter until its replacement
-                    // has compiled and is ready to attach.
-                    manager.remove_all_filters();
-                    manager.add_filter(&filter);
-                    complete_linux(&async_completion, true);
-                }
-                Err(error) => {
-                    eprintln!("[adblock] WebKitGTK filter compilation failed: {error}");
-                    complete_linux(&async_completion, false);
-                }
+    let matcher = match json {
+        Some(json) => match Matcher::from_json(&json) {
+            Ok(matcher) => Some(Arc::new(matcher)),
+            Err(error) => {
+                eprintln!("[adblock] WebView2 rule compilation failed: {error}");
+                done(false);
+                return;
             }
-        });
+        },
+        None => None, // blocking disabled
+    };
+    native::set_active(matcher);
+
+    let done_in_webview = done.clone();
+    let app = window.app_handle().clone();
+
+    let result = window.with_webview(move |platform_webview| {
+        done_in_webview(native::attach(&platform_webview, app));
     });
 
     if let Err(error) = result {
-        eprintln!("[adblock] Could not access Linux WebKit view: {error}");
-        complete_linux(&completion, false);
+        eprintln!("[adblock] Failed to access native webview: {error}");
+        done(false);
     }
 }
 
-#[cfg(windows)]
-fn install_native(
-    _app: &AppHandle,
-    _window: &WebviewWindow,
-    _json: Option<String>,
-    done: impl FnOnce(bool) + Send + 'static,
-) {
-    // WebView2 interception is intentionally not reported as active until a
-    // persistent WebResourceRequested handler is installed by the app host.
-    done(false);
-}
-
-/// Download an HTTPS filter list.
-fn write_filter_cache(path: &std::path::Path, body: &str) -> Result<(), String> {
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| "Invalid filter cache filename".to_string())?;
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let temp = path.with_file_name(format!(
-        ".{}.{}.{}.tmp",
-        file_name,
-        std::process::id(),
-        nonce
-    ));
-
-    fs::write(&temp, body).map_err(|error| error.to_string())?;
-
-    // std::fs::rename does not replace an existing file on Windows.
-    #[cfg(windows)]
-    if path.exists() {
-        fs::remove_file(path).map_err(|error| error.to_string())?;
-    }
-
-    if let Err(error) = fs::rename(&temp, path) {
-        let _ = fs::remove_file(&temp);
-        return Err(error.to_string());
-    }
-    Ok(())
-}
-
+/// Download and validate an HTTPS filter list.
 fn fetch(url: &str) -> Result<String, String> {
     if !url.starts_with("https://") {
         return Err("HTTPS URLs only".into());
     }
 
-    let mut text = String::new();
-    let response = ureq::get(url)
-        .timeout(Duration::from_secs(20))
-        .call()
-        .map_err(|e| e.to_string())?;
+    let mut response = String::new();
 
-    response
+    ureq::get(url)
+        .timeout(Duration::from_secs(30))
+        .call()
+        .map_err(|e| e.to_string())?
         .into_reader()
         .take(MAX_LIST_BYTES + 1)
-        .read_to_string(&mut text)
+        .read_to_string(&mut response)
         .map_err(|e| e.to_string())?;
 
-    if text.len() as u64 > MAX_LIST_BYTES {
+    if response.len() as u64 > MAX_LIST_BYTES {
         return Err("Filter list exceeds the 32 MB size limit".into());
     }
 
-    let header = text.lines().next().unwrap_or("");
+    let head = response
+        .trim_start_matches('\u{feff}')
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("")
+        .trim();
 
-    if header.starts_with("[Adblock") || header.starts_with('!') {
-        Ok(text)
+    if head.starts_with("[Adblock") || head.starts_with('!') || head.starts_with("! ") {
+        Ok(response)
     } else {
-        Err("Not a recognized filter list".into())
+        Err("Downloaded content does not appear to be a filter list".into())
     }
 }
 
 /// True on first run or when an enabled remote list is older than 7 days.
 pub fn needs_update(app: &AppHandle) -> bool {
-    let state = app.state::<AppState>();
-    let settings = state.settings.lock().unwrap();
+    let st = app.state::<AppState>();
+    let settings = st.settings.lock().unwrap();
 
     settings.adblock
         && settings.lists.iter().any(|list| {
             list.enabled
                 && list.url.is_some()
-                && list.updated.map_or(true, |timestamp| {
-                    now().saturating_sub(timestamp) > STALE_SECS
-                })
+                && list
+                    .updated
+                    .map_or(true, |updated| now().saturating_sub(updated) > STALE_SECS)
         })
 }
 
-/// Download enabled remote lists, cache them, and rebuild.
-pub fn update_lists(app: &AppHandle) -> Result<String, String> {
-    let state = app.state::<AppState>();
+/// Download enabled remote lists, cache them, save settings and rebuild.
+pub fn update_lists(app: &AppHandle, quiet: bool) -> Result<String, String> {
+    let st = app.state::<AppState>();
 
-    let lists: Vec<FilterList> = state
+    let lists: Vec<FilterList> = st
         .settings
         .lock()
         .unwrap()
@@ -884,27 +851,51 @@ pub fn update_lists(app: &AppHandle) -> Result<String, String> {
         .cloned()
         .collect();
 
-    fs::create_dir_all(filters_dir(app)).map_err(|e| e.to_string())?;
+    let directory = filters_dir(app);
 
-    let (mut updated, mut errors) = (0, Vec::new());
+    fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+
+    let (mut success_count, mut errors) = (0usize, Vec::new());
 
     for list in lists {
-        match fetch(list.url.as_deref().unwrap()) {
-            Ok(body) => {
-                write_filter_cache(&filters_dir(app).join(format!("{}.txt", list.id)), &body)?;
+        let Some(url) = list.url.as_deref() else {
+            continue;
+        };
 
-                if let Some(entry) = state
+        match fetch(url) {
+            Ok(body) => {
+                let destination = directory.join(format!("{}.txt", list.id));
+
+                let temporary = directory.join(format!("{}.txt.tmp", list.id));
+
+                // Write to a temporary file first so a failed download
+                // cannot destroy the previously working filter cache.
+                if let Err(error) = fs::write(&temporary, body) {
+                    errors.push(format!("{}: {}", list.name, error));
+
+                    continue;
+                }
+
+                if let Err(error) = fs::rename(&temporary, &destination) {
+                    let _ = fs::remove_file(&temporary);
+
+                    errors.push(format!("{}: {}", list.name, error));
+
+                    continue;
+                }
+
+                if let Some(existing) = st
                     .settings
                     .lock()
                     .unwrap()
                     .lists
                     .iter_mut()
-                    .find(|entry| entry.id == list.id)
+                    .find(|existing| existing.id == list.id)
                 {
-                    entry.updated = Some(now());
+                    existing.updated = Some(now());
                 }
 
-                updated += 1;
+                success_count += 1;
             }
 
             Err(error) => {
@@ -913,15 +904,15 @@ pub fn update_lists(app: &AppHandle) -> Result<String, String> {
         }
     }
 
-    state.settings.lock().unwrap().save(app);
+    st.settings.lock().unwrap().save(app);
 
-    if updated > 0 {
-        rebuild(app, false);
+    if success_count > 0 {
+        rebuild_with(app, if quiet { Mode::Silent } else { Mode::Reload });
     }
 
     Ok(format!(
         "Updated {} list(s){}",
-        updated,
+        success_count,
         if errors.is_empty() {
             String::new()
         } else {

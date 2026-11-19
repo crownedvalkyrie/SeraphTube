@@ -1,13 +1,36 @@
 {
+  "_help": "Copy this file, rename it (files starting with _ are ignored), change id/name, then click 'Rescan themes' in Seraphtube. 'vars' accepts --st-* (Seraphtube's own windows) and --yt-spec-* (YouTube's design tokens). 'css' is optional extra CSS. 'effect' is 'none' or 'glass' (macOS vibrancy / Windows 11 Mica).",
   "id": "my-theme",
   "name": "My Theme",
   "effect": "none",
+<<<<<<< HEAD
   "swatch": ["#141214", "#c8a45a", "#8e2f45"],
   "vars": {
     "--st-bg": "#141214",
     "--st-bg-elev": "#1d1a1f",
     "--st-text": "#e8e1d2",
     "--st-accent": "#c8a45a"
+=======
+  "swatch": ["#101418", "#7cc4ff", "#e6eef7"],
+  "vars": {
+    "--st-bg": "#101418",
+    "--st-bg-elev": "#171d24",
+    "--st-bg-elev-2": "#1f2730",
+    "--st-text": "#e6eef7",
+    "--st-text-dim": "#93a1b2",
+    "--st-accent": "#7cc4ff",
+    "--st-accent-2": "#4a90d9",
+    "--st-accent-soft": "rgba(124,196,255,.3)",
+    "--st-border": "rgba(124,196,255,.2)",
+    "--st-radius": "8px",
+    "--yt-spec-base-background": "#101418",
+    "--yt-spec-raised-background": "#171d24",
+    "--yt-spec-menu-background": "#171d24",
+    "--yt-spec-text-primary": "#e6eef7",
+    "--yt-spec-text-secondary": "#93a1b2",
+    "--yt-spec-call-to-action": "#7cc4ff",
+    "--yt-spec-outline": "rgba(124,196,255,.2)"
+>>>>>>> e98edb851b2c295902d7dfb17c52f370c545d747
   },
   "css": ""
 }

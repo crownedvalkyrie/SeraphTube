@@ -1,53 +1,42 @@
-name: "Publish Release"
+name: Publish Release
 
 on:
+  workflow_dispatch:
   push:
     tags:
+      - "0.2.0"
       - "v*"
+
+permissions:
+  contents: write
 
 jobs:
   publish-release:
-    permissions:
-      contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos-latest
-            args: ""
-          - platform: windows-latest
-            args: ""
-          - platform: ubuntu-22_04
-            args: ""
+    runs-on: windows-latest
 
-    runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
 
-      - name: Install dependencies (Ubuntu only)
-        if: matrix.platform == 'ubuntu-22_04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
 
       - name: Build and Release
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          projectPath: src-tauri
           tagName: ${{ github.ref_name }}
-          releaseName: "Seraphtube ${{ github.ref_name }}"
-          releaseBody: "Automated desktop release for Windows, macOS, and Linux."
+          releaseName: SeraphTube ${{ github.ref_name }}
+          releaseBody: SeraphTube Windows desktop release.
           releaseDraft: false
           prerelease: false
-          workspacedir: src-tauri
-          projectPath: src-tauri
-          args: ${{ matrix.args }}
+          args: ""

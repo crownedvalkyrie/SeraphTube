@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Rust & Tauri build artifacts
 target/
 src-tauri/target/
@@ -43,3 +44,13 @@ Desktop.ini
 *.swp
 *.swo
 *~
+=======
+# macOS metadata
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+>>>>>>> e98edb851b2c295902d7dfb17c52f370c545d747

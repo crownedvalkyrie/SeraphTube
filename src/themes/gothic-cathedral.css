@@ -1,4 +1,10 @@
+<<<<<<< HEAD
 :root[data-seraph-theme="gothic-cathedral"] {
+=======
+/* Gothic Cathedral — aged gold on near-black, burgundy for emphasis. */
+:root[data-seraph-theme="gothic-cathedral"] {
+  /* Seraphtube (settings window, floating button) */
+>>>>>>> e98edb851b2c295902d7dfb17c52f370c545d747
   --st-bg: #141214;
   --st-bg-elev: #1d1a1f;
   --st-bg-elev-2: #262229;
@@ -8,5 +14,39 @@
   --st-accent-2: #8e2f45;
   --st-accent-soft: rgba(200, 164, 90, .28);
   --st-border: rgba(200, 164, 90, .22);
+<<<<<<< HEAD
   --st-font-display: Georgia, serif;
+=======
+  --st-scroll: rgba(200, 164, 90, .35);
+  --st-radius: 6px;
+  --st-font-display: "Cinzel", "Trajan Pro", "Palatino Linotype", Palatino, Georgia, serif;
+  --st-font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* YouTube design tokens */
+  --yt-spec-base-background: #141214;
+  --yt-spec-raised-background: #1d1a1f;
+  --yt-spec-menu-background: #1d1a1f;
+  --yt-spec-inverted-background: #e8e1d2;
+  --yt-spec-additive-background: rgba(232, 225, 210, .06);
+  --yt-spec-general-background-a: #141214;
+  --yt-spec-general-background-b: #181519;
+  --yt-spec-general-background-c: #1d1a1f;
+  --yt-spec-text-primary: #e8e1d2;
+  --yt-spec-text-secondary: #a79f8f;
+  --yt-spec-text-disabled: #6f685b;
+  --yt-spec-text-primary-inverse: #141214;
+  --yt-spec-call-to-action: #c8a45a;
+  --yt-spec-themed-blue: #c8a45a;
+  --yt-spec-suggested-action: rgba(200, 164, 90, .14);
+  --yt-spec-icon-inactive: #a79f8f;
+  --yt-spec-icon-active-other: #e8e1d2;
+  --yt-spec-outline: rgba(200, 164, 90, .22);
+  --yt-spec-10-percent-layer: rgba(232, 225, 210, .12);
+  --yt-spec-5-percent-layer: rgba(232, 225, 210, .06);
+  --yt-spec-badge-chip-background: rgba(232, 225, 210, .08);
+  --yt-spec-button-chip-background-hover: rgba(232, 225, 210, .16);
+  --yt-spec-touch-response: #e8e1d2;
+  --yt-spec-static-brand-red: #8e2f45;
+  --yt-spec-brand-button-background: #8e2f45;
+>>>>>>> e98edb851b2c295902d7dfb17c52f370c545d747
 }

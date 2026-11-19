@@ -399,6 +399,12 @@
           "markdownDescription": "Enables the set_adblock command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_intro command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-intro",
+          "markdownDescription": "Enables the set_intro command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_performance command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-performance",
@@ -475,6 +481,12 @@
           "type": "string",
           "const": "deny-set-adblock",
           "markdownDescription": "Denies the set_adblock command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_intro command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-intro",
+          "markdownDescription": "Denies the set_intro command without any pre-configured scope."
         },
         {
           "description": "Denies the set_performance command without any pre-configured scope.",
