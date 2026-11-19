@@ -1,7 +1,9 @@
 (() => {
   'use strict';
 
-  const invoke = window.__TAURI__?.core?.invoke;
+  const invoke =
+    window.__TAURI_INTERNALS__?.invoke ||
+    window.__TAURI__?.core?.invoke;
   const $ = (selector) => document.querySelector(selector);
   const h = (tag, props = {}, ...children) => {
     const element = document.createElement(tag);
@@ -45,7 +47,8 @@
       tab.setAttribute('aria-selected', String(on));
       tab.tabIndex = on ? 0 : -1;
       if (on && focus) tab.focus();
-      $('#pane-' + tab.dataset.tab).hidden = !on;
+      const pane = $('#pane-' + tab.dataset.tab);
+      if (pane) pane.hidden = !on;
     }
     if (name === 'ward') startStats(); else stopStats();
   }
@@ -64,13 +67,14 @@
   // ---- themes ---------------------------------------------------------------------------------
   const paint = (id, css) => {
     document.documentElement.dataset.seraphTheme = id || 'default';
-    $('#theme-css').textContent = css || '';
+    const styleEl = $('#theme-css');
+    if (styleEl) styleEl.textContent = css || '';
   };
 
   async function pickTheme(id) {
     try {
       const css = await invoke('set_theme', { id });
-      if (state) state.settings.theme = id;
+      if (state && state.settings) state.settings.theme = id;
       paint(id, css);
       renderThemes();
     } catch (error) {
@@ -94,6 +98,8 @@
   }
 
   function renderThemes() {
+    const container = $('#themes');
+    if (!container) return;
     const themes = state?.themes || [];
     const q = themeQuery.trim().toLowerCase();
     const filtered = q
@@ -108,14 +114,14 @@
     if (clearBtn) clearBtn.hidden = !themeQuery;
 
     if (filtered.length === 0) {
-      $('#themes').replaceChildren(
+      container.replaceChildren(
         h('p', { className: 'empty-themes' }, q ? `No themes match "${themeQuery.trim()}".` : 'No themes found.')
       );
       return;
     }
 
-    $('#themes').replaceChildren(...filtered.map((theme) => {
-      const selected = theme.id === state.settings.theme;
+    container.replaceChildren(...filtered.map((theme) => {
+      const selected = theme.id === state?.settings?.theme;
       const button = h('button', {
         type: 'button',
         className: 'theme',
@@ -140,6 +146,8 @@
   };
 
   function renderLists() {
+    const listEl = $('#lists');
+    if (!listEl) return;
     const lists = state?.settings?.lists || [];
     const rows = lists.map((list) => {
       const when = list.updated
@@ -178,8 +186,8 @@
       }, 'Remove');
       return h('li', {}, toggle, label, remove);
     });
-    $('#lists').replaceChildren(...rows);
-    if (rows.length === 0) $('#lists').append(h('li', {}, h('small', {}, 'No filter lists are configured.')));
+    listEl.replaceChildren(...rows);
+    if (rows.length === 0) listEl.append(h('li', {}, h('small', {}, 'No filter lists are configured.')));
   }
 
   // ---- engine status --------------------------------------------------------------------------
@@ -195,9 +203,12 @@
   function updateNativeStatus(code) {
     const [stateName, label, note] = ENGINE[code] || ['off', 'Unknown', ''];
     const pill = $('#native');
-    pill.dataset.state = stateName;
-    pill.textContent = label;
-    $('#block-note').textContent = note;
+    if (pill) {
+      pill.dataset.state = stateName;
+      pill.textContent = label;
+    }
+    const blockNote = $('#block-note');
+    if (blockNote) blockNote.textContent = note;
   }
 
   async function refreshStats() {
@@ -231,22 +242,24 @@
     paint(state.settings?.theme, state.css);
     renderThemes();
     renderLists();
-    $('#adblock').checked = Boolean(state.settings?.adblock);
-    $('#intro').checked = state.settings?.intro !== false;
-    $('#blocked').textContent = Number(state.blocked || 0).toLocaleString();
-    $('#rules').textContent = Number(state.rules || 0).toLocaleString();
+    if ($('#adblock')) $('#adblock').checked = Boolean(state.settings?.adblock);
+    if ($('#intro')) $('#intro').checked = state.settings?.intro !== false;
+    if ($('#blocked')) $('#blocked').textContent = Number(state.blocked || 0).toLocaleString();
+    if ($('#rules')) $('#rules').textContent = Number(state.rules || 0).toLocaleString();
     updateNativeStatus(Number(state.native));
 
     const mac = state.platform === 'macos';
     const platform = PLATFORM[state.platform] || state.platform || '';
-    $('#version').textContent = 'v' + (state.version || '') + (platform ? ' \u00b7 ' + platform : '');
-    $('#about-line').textContent = 'Seraphtube ' + (state.version || '') + (platform ? ' on ' + platform : '');
-    $('#key-settings').textContent = mac ? '\u2318 ,' : 'Ctrl + ,';
-    $('#key-pip').textContent = mac ? '\u2318 \u21e7 P' : 'Ctrl + Shift + P';
-    $('#key-reload').textContent = mac ? '\u2318 R' : 'Ctrl + R  (or F5)';
-    $('#coverage').textContent = mac
-      ? 'On macOS, WebKit content rules filter every request the browser makes, and the page layer removes ads from YouTube\u2019s data and hides leftover placements.'
-      : 'On Windows, a native WebView2 filter checks every request the page makes against the same rules, and the page layer removes ads from YouTube\u2019s data and hides leftover placements.';
+    if ($('#version')) $('#version').textContent = 'v' + (state.version || '') + (platform ? ' \u00b7 ' + platform : '');
+    if ($('#about-line')) $('#about-line').textContent = 'Seraphtube ' + (state.version || '') + (platform ? ' on ' + platform : '');
+    if ($('#key-settings')) $('#key-settings').textContent = mac ? '\u2318 ,' : 'Ctrl + ,';
+    if ($('#key-pip')) $('#key-pip').textContent = mac ? '\u2318 \u21e7 P' : 'Ctrl + Shift + P';
+    if ($('#key-reload')) $('#key-reload').textContent = mac ? '\u2318 R' : 'Ctrl + R  (or F5)';
+    if ($('#coverage')) {
+      $('#coverage').textContent = mac
+        ? 'On macOS, WebKit content rules filter every request the browser makes, and the page layer removes ads from YouTube\u2019s data and hides leftover placements.'
+        : 'On Windows, a native WebView2 filter checks every request the page makes against the same rules, and the page layer removes ads from YouTube\u2019s data and hides leftover placements.';
+    }
   }
 
   // ---- wiring -----------------------------------------------------------------------------------
@@ -277,7 +290,7 @@
     });
   }
 
-  $('#adblock').addEventListener('change', async (event) => {
+  $('#adblock')?.addEventListener('change', async (event) => {
     const toggle = event.currentTarget;
     toggle.disabled = true;
     clearError();
@@ -292,7 +305,7 @@
     }
   });
 
-  $('#intro').addEventListener('change', async (event) => {
+  $('#intro')?.addEventListener('change', async (event) => {
     const toggle = event.currentTarget;
     try {
       await invoke('set_intro', { on: toggle.checked });
@@ -319,14 +332,14 @@
     for (const radio of document.querySelectorAll('input[name="performance"]')) radio.checked = radio.value === value;
   }
 
-  $('#open-themes').addEventListener('click', async () => {
+  $('#open-themes')?.addEventListener('click', async () => {
     try { await invoke('open_themes_dir'); } catch (error) { showError(error); }
   });
-  $('#rescan').addEventListener('click', async () => {
+  $('#rescan')?.addEventListener('click', async () => {
     try { await loadState(); } catch (error) { showError(error); }
   });
 
-  $('#update').addEventListener('click', async () => {
+  $('#update')?.addEventListener('click', async () => {
     const button = $('#update');
     button.disabled = true;
     $('#status').textContent = 'Updating filter lists\u2026';
@@ -341,7 +354,7 @@
     }
   });
 
-  $('#add').addEventListener('submit', async (event) => {
+  $('#add')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const name = $('#name').value.trim();
@@ -368,7 +381,9 @@
   (async function initialize() {
     try {
       await loadState();
-      setPerformanceRadio(await invoke('get_performance'));
+      try {
+        setPerformanceRadio(await invoke('get_performance'));
+      } catch (_) { /* Optional performance query fallback. */ }
     } catch (error) {
       showError(error);
     }

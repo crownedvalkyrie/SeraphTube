@@ -178,66 +178,86 @@
 <script>
 (() => {
   'use strict';
-  const boot = window.__SERAPH_BOOT;
 
-  // Active theme: same CSS the YouTube page and the settings window use.
-  if (boot && boot.theme) {
-    document.getElementById('theme-css').textContent = boot.theme.css || '';
-    document.documentElement.dataset.seraphTheme = boot.theme.id || 'default';
-  }
-  // Intro animation switched off: a short, quiet version (the app also skips the minimum wait).
-  if (boot && boot.intro === false) document.documentElement.classList.add('quick');
-
-  // ---- wings -------------------------------------------------------------------------------
-  const NS = 'http://www.w3.org/2000/svg';
-  const svg = document.getElementById('wings');
-  const anchor = svg.querySelector('.halo-g'); // feathers go before the halo so the halo sits on top
-  const ROOT_Y = 150, ROOT_DX = 14;
-
-  const feather = (length, width) =>
-    `M0 0C${width} ${-length * .22} ${width * .85} ${-length * .8} 0 ${-length}` +
-    `C${-width * .85} ${-length * .8} ${-width} ${-length * .22} 0 0Z`;
-
-  // [count, first angle, last angle, length factor]. Angles are measured from straight up;
-  // longer flight feathers sit lower and further out, as on a real wing.
-  const ROWS = [
-    { n: 9, from: 24, to: 106, k: 1 },     // primaries
-    { n: 8, from: 30, to: 98,  k: .62 },   // secondaries
-    { n: 7, from: 34, to: 92,  k: .36 },   // coverts
-  ];
-
-  let index = 0;
-  for (const row of ROWS) {
-    for (let step = 0; step < row.n; step += 1) {
-      const t = row.n === 1 ? 0 : step / (row.n - 1);
-      const angle = row.from + (row.to - row.from) * t;
-      const length = (70 + ((angle - 24) / 82) * 96) * row.k;
-      const width = length * .135;
-      const order = (row.n - 1 - step) + ROWS.indexOf(row) * 2; // opens from the lower feathers up
-      for (const side of [1, -1]) {
-        const path = document.createElementNS(NS, 'path');
-        path.setAttribute('d', feather(length, width));
-        path.setAttribute('class', 'f');
-        path.style.cssText =
-          `--x:${200 + side * ROOT_DX}px;--y:${ROOT_Y}px;--r:${side * angle}deg;` +
-          `--i:${order};--fl:${(side * (1.2 + (step % 3) * .5)).toFixed(2)}deg`;
-        svg.insertBefore(path, anchor);
-      }
-      index += 1;
+  function applyBoot(boot) {
+    if (!boot || typeof boot !== 'object') return;
+    if (boot.theme) {
+      const themeStyle = document.getElementById('theme-css');
+      if (themeStyle) themeStyle.textContent = boot.theme.css || '';
+      document.documentElement.dataset.seraphTheme = boot.theme.id || 'default';
+    }
+    if (boot.intro === false) {
+      document.documentElement.classList.add('quick');
+    } else {
+      document.documentElement.classList.remove('quick');
     }
   }
 
-  // ---- drifting feathers ------------------------------------------------------------------------
-  const drift = document.getElementById('drift');
-  const rnd = (a, b) => a + Math.random() * (b - a);
-  const count = boot && boot.intro === false ? 0 : 14;
-  for (let k = 0; k < count; k += 1) {
-    const f = document.createElement('i');
-    f.style.cssText =
-      `--x:${rnd(4, 96).toFixed(1)}%;--s:${rnd(.6, 1.3).toFixed(2)};--t:${rnd(4, 7.5).toFixed(2)}s;` +
-      `--dl:${rnd(0, 3.2).toFixed(2)}s;--sw:${rnd(-70, 70).toFixed(0)}px`;
-    drift.append(f);
+  function buildSplash() {
+    const boot = window.__SERAPH_BOOT;
+    applyBoot(boot);
+
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.getElementById('wings');
+    const anchor = svg ? svg.querySelector('.halo-g') : null;
+    const ROOT_Y = 150, ROOT_DX = 14;
+
+    const feather = (length, width) =>
+      `M0 0C${width} ${-length * .22} ${width * .85} ${-length * .8} 0 ${-length}` +
+      `C${-width * .85} ${-length * .8} ${-width} ${-length * .22} 0 0Z`;
+
+    const ROWS = [
+      { n: 9, from: 24, to: 106, k: 1 },     // primaries
+      { n: 8, from: 30, to: 98,  k: .62 },   // secondaries
+      { n: 7, from: 34, to: 92,  k: .36 },   // coverts
+    ];
+
+    if (svg && !svg.querySelector('path.f')) {
+      for (let rIdx = 0; rIdx < ROWS.length; rIdx += 1) {
+        const row = ROWS[rIdx];
+        for (let step = 0; step < row.n; step += 1) {
+          const t = row.n === 1 ? 0 : step / (row.n - 1);
+          const angle = row.from + (row.to - row.from) * t;
+          const length = (70 + ((angle - 24) / 82) * 96) * row.k;
+          const width = length * .135;
+          const order = (row.n - 1 - step) + rIdx * 2;
+          for (const side of [1, -1]) {
+            const path = document.createElementNS(NS, 'path');
+            path.setAttribute('d', feather(length, width));
+            path.setAttribute('class', 'f');
+            path.style.cssText =
+              `--x:${200 + side * ROOT_DX}px;--y:${ROOT_Y}px;--r:${side * angle}deg;` +
+              `--i:${order};--fl:${(side * (1.2 + (step % 3) * .5)).toFixed(2)}deg`;
+            if (anchor) svg.insertBefore(path, anchor);
+            else svg.appendChild(path);
+          }
+        }
+      }
+    }
+
+    const drift = document.getElementById('drift');
+    if (drift && drift.childElementCount === 0) {
+      const rnd = (a, b) => a + Math.random() * (b - a);
+      const count = boot && boot.intro === false ? 0 : 14;
+      for (let k = 0; k < count; k += 1) {
+        const f = document.createElement('i');
+        f.style.cssText =
+          `--x:${rnd(4, 96).toFixed(1)}%;--s:${rnd(.6, 1.3).toFixed(2)};--t:${rnd(4, 7.5).toFixed(2)}s;` +
+          `--dl:${rnd(0, 3.2).toFixed(2)}s;--sw:${rnd(-70, 70).toFixed(0)}px`;
+        drift.append(f);
+      }
+    }
   }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', buildSplash, { once: true });
+  } else {
+    buildSplash();
+  }
+
+  window.addEventListener('seraph:boot', (event) => {
+    applyBoot(event?.detail || window.__SERAPH_BOOT);
+  });
 })();
 </script>
 </body>
