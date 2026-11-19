@@ -406,7 +406,6 @@ pub mod native {
 
     use windows::{
         core::{w, PWSTR},
-        Foundation::EventRegistrationToken,
         Win32::System::Com::IStream,
     };
 
