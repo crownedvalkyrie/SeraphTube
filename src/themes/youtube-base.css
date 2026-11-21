@@ -1,4 +1,90 @@
-/* Base YouTube token overrides applied under every Seraphtube theme. */
+/* Base YouTube token overrides applied under every Seraphtube theme.
+ * These map Seraphtube's own --st-* tokens to YouTube's --yt-spec-* design system,
+ * so changing a theme recolours the YouTube interface live. */
 :root {
   color-scheme: dark;
+}
+
+html[data-seraph-theme] {
+  /* Core backgrounds */
+  --yt-spec-base-background: var(--st-bg);
+  --yt-spec-raised-background: var(--st-bg-elev);
+  --yt-spec-menu-background: var(--st-bg-elev);
+  --yt-spec-inverted-background: var(--st-text);
+  --yt-spec-general-background-a: var(--st-bg);
+  --yt-spec-general-background-b: var(--st-bg-elev);
+  --yt-spec-general-background-c: var(--st-bg-elev-2);
+  --yt-spec-additive-background: var(--st-bg-elev-2);
+  --yt-spec-badge-chip-background: var(--st-bg-elev-2);
+  --yt-spec-static-overlay-background-solid: var(--st-bg-elev);
+
+  /* Text */
+  --yt-spec-text-primary: var(--st-text);
+  --yt-spec-text-secondary: var(--st-text-dim);
+  --yt-spec-text-disabled: rgba(167, 159, 143, 0.5);
+  --yt-spec-text-title: var(--st-text);
+
+  /* Accent / brand */
+  --yt-spec-call-to-action: var(--st-accent);
+  --yt-spec-icon-active-other: var(--st-accent);
+  --yt-spec-icon-inactive: var(--st-text-dim);
+  --yt-spec-brand-icon-active: var(--st-accent);
+  --yt-spec-brand-icon-inactive: var(--st-text-dim);
+  --yt-spec-brand-button-background: var(--st-accent);
+  --yt-spec-brand-link-text: var(--st-accent);
+  --yt-spec-static-brand-red: var(--st-accent-2, var(--st-accent));
+  --yt-spec-static-brand-white: var(--st-text);
+  --yt-spec-static-brand-black: var(--st-bg);
+
+  /* Borders, dividers, overlays */
+  --yt-spec-outline: var(--st-border);
+  --yt-spec-divider: var(--st-border);
+  --yt-spec-10-percent-layer: var(--st-accent-soft);
+  --yt-spec-touch-response: var(--st-accent-soft);
+
+  /* Scrollbar tinting to match the theme */
+  scrollbar-color: var(--st-accent-soft) var(--st-bg-elev);
+}
+
+/* Direct UI chrome that does not always read the tokens above.
+ * Use html[...] for higher specificity than YouTube's own :root tokens. */
+html[data-seraph-theme] ytd-app,
+html[data-seraph-theme] ytd-page-manager,
+html[data-seraph-theme] ytd-browse,
+html[data-seraph-theme] ytd-watch-flexy,
+html[data-seraph-theme] ytd-search,
+html[data-seraph-theme] #columns,
+html[data-seraph-theme] #primary,
+html[data-seraph-theme] #secondary,
+html[data-seraph-theme] #content {
+  background: var(--st-bg) !important;
+}
+
+html[data-seraph-theme] #masthead-container,
+html[data-seraph-theme] ytd-masthead {
+  background: var(--st-bg-elev) !important;
+  border-bottom-color: var(--st-border) !important;
+}
+
+html[data-seraph-theme] #guide-inner-content,
+html[data-seraph-theme] ytd-guide-renderer > [slot="items"] {
+  background: var(--st-bg-elev) !important;
+}
+
+html[data-seraph-theme] ytd-mini-guide-renderer,
+html[data-seraph-theme] ytd-mini-guide-entry-renderer {
+  background: var(--st-bg-elev) !important;
+}
+
+html[data-seraph-theme] ytd-thumbnail::before,
+html[data-seraph-theme] ytd-thumbnail-overlay-time-status-renderer {
+  background: var(--st-bg-elev-2) !important;
+}
+
+html[data-seraph-theme] yt-page-navigation-progress #progress {
+  background: var(--st-accent) !important;
+}
+
+html[data-seraph-theme] #progress.yt-page-navigation-progress {
+  background-color: var(--st-accent) !important;
 }

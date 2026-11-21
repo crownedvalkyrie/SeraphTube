@@ -417,28 +417,14 @@ fn parse(text: &str, cosmetic_ok: bool, out: &mut Out) {
     }
 }
 
-/// Compile enabled filter lists.
-///
-/// IMPORTANT: This accepts owned FilterList references only for the
-/// duration of compilation. No references escape this function.
-fn build(app: &AppHandle, lists: &[FilterList]) -> (String, Compiled) {
+/// Compile a collection of filter texts. `builtin` decides whether cosmetic rules and
+/// JS-layer host/needle collection are enabled for that text.
+fn compile_texts(inputs: &[(bool, &str)]) -> (String, Compiled) {
     let mut out = Out::default();
 
-    for list in lists {
-        let text = if list.builtin {
-            match list.id.as_str() {
-                "core" => Some(CORE.to_string()),
-                "google-ads" => Some(GOOGLE_ADS.to_string()),
-                _ => None,
-            }
-        } else {
-            fs::read_to_string(filters_dir(app).join(format!("{}.txt", list.id))).ok()
-        };
-
-        if let Some(text) = text {
-            out.js = list.builtin;
-            parse(&text, list.builtin, &mut out);
-        }
+    for (builtin, text) in inputs {
+        out.js = *builtin;
+        parse(text, *builtin, &mut out);
     }
 
     // Reserve room for exceptions first.
@@ -479,6 +465,33 @@ fn build(app: &AppHandle, lists: &[FilterList]) -> (String, Compiled) {
             native,
         },
     )
+}
+
+/// Compile enabled filter lists.
+///
+/// IMPORTANT: This accepts owned FilterList references only for the
+/// duration of compilation. No references escape this function.
+fn build(app: &AppHandle, lists: &[FilterList]) -> (String, Compiled) {
+    let mut inputs: Vec<(bool, String)> = Vec::new();
+
+    for list in lists {
+        let text = if list.builtin {
+            match list.id.as_str() {
+                "core" => Some(CORE.to_string()),
+                "google-ads" => Some(GOOGLE_ADS.to_string()),
+                _ => None,
+            }
+        } else {
+            fs::read_to_string(filters_dir(app).join(format!("{}.txt", list.id))).ok()
+        };
+
+        if let Some(text) = text {
+            inputs.push((list.builtin, text));
+        }
+    }
+
+    let borrowed: Vec<(bool, &str)> = inputs.iter().map(|(b, s)| (*b, s.as_str())).collect();
+    compile_texts(&borrowed)
 }
 
 /// Wrap a one-shot callback so it can be cloned into several closures and fires at
@@ -534,7 +547,7 @@ fn leave_splash(window: WebviewWindow, intro: bool) {
             }
             std::thread::sleep(Duration::from_millis(OUTRO_MS));
         }
-        if let Err(error) = window.eval(&format!("location.replace({})", json!(START_URL))) {
+        if let Err(error) = window.eval(format!("location.replace({})", json!(START_URL))) {
             eprintln!("[startup] could not navigate to YouTube: {error}");
         }
     });
@@ -847,7 +860,7 @@ pub fn needs_update(app: &AppHandle) -> bool {
                 && list.url.is_some()
                 && list
                     .updated
-                    .map_or(true, |updated| now().saturating_sub(updated) > STALE_SECS)
+                    .is_none_or(|updated| now().saturating_sub(updated) > STALE_SECS)
         })
 }
 
@@ -933,4 +946,34 @@ pub fn update_lists(app: &AppHandle, quiet: bool) -> Result<String, String> {
             format!(" · {}", errors.join("; "))
         }
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bundled_lists_compile() {
+        let (json, compiled) = compile_texts(&[(true, CORE), (true, GOOGLE_ADS)]);
+        assert!(!json.is_empty());
+        let parsed: Value = serde_json::from_str(&json).expect("compiled rules are valid JSON");
+        assert!(parsed.as_array().map(|a| !a.is_empty()).unwrap_or(false));
+        assert!(!compiled.hosts.is_empty() || !compiled.needles.is_empty());
+    }
+
+    #[test]
+    fn first_party_is_never_blocked() {
+        let (json, _) = compile_texts(&[(true, CORE)]);
+        let parsed: Vec<Value> = serde_json::from_str(&json).unwrap();
+        for rule in parsed {
+            if rule["action"]["type"] != "block" {
+                continue;
+            }
+            let filter = rule["trigger"]["url-filter"].as_str().unwrap_or("");
+            assert!(
+                !filter.contains("youtube\\.com") && !filter.contains("googlevideo\\.com"),
+                "first-party host should not be targeted: {filter}"
+            );
+        }
+    }
 }

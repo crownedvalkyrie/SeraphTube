@@ -1,6 +1,7 @@
 //! Theme registry. Built-ins are embedded; user themes are JSON files in
 //! <config dir>/app.seraphtube.desktop/themes/ (macOS: ~/Library/Application Support, Windows: %APPDATA%).
 //! The active theme id persists in settings.json.
+use crate::cursors;
 use crate::settings::config_dir;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fs};
@@ -73,27 +74,54 @@ pub fn find(app: &AppHandle, id: &str) -> Theme {
     v.swap_remove(i)
 }
 
-pub fn full_css(t: &Theme) -> String { format!("{BASE}\n{}", t.css) }
+/// The stylesheet for a theme: shared base, the theme itself, the chosen cursor set, and on
+/// Windows a solid backdrop for glass themes.
+///
+/// Windows windows are always opaque. A transparent (layered) WebView2 window can freeze CSS
+/// animations and fail to paint, so "glass" themes get a solid backdrop there instead of
+/// the translucent one that macOS vibrancy shows through.
+pub fn full_css(t: &Theme, cursor: &str) -> String {
+    let accent = t.swatch.get(1).map(String::as_str).unwrap_or("#c8a45a");
+    let outline = t.swatch.first().map(String::as_str).unwrap_or("#141214");
 
-/// "Glass" themes get a native window effect where one exists:
-/// macOS vibrancy (HudWindow), Windows 11 Mica. Linux compositors expose no such
-/// API, so the theme falls back to its plain CSS there. Removed for every other theme.
+    let mut css = format!("{BASE}\n{}", t.css);
+    css.push('\n');
+    css.push_str(&cursors::css(cursor, accent, outline));
+
+    #[cfg(target_os = "windows")]
+    if t.effect == "glass" {
+        let id = &t.id;
+        css.push_str(&format!(
+            ":root[data-seraph-theme=\"{id}\"]{{--st-bg:#10141e}}\n\
+             :root[data-seraph-theme=\"{id}\"],:root[data-seraph-theme=\"{id}\"] body{{background:#10141e!important}}\n"
+        ));
+    }
+
+    css
+}
+
+/// Cursor picker data for the settings page, tinted for this theme.
+pub fn cursor_catalog(t: &Theme) -> serde_json::Value {
+    let accent = t.swatch.get(1).map(String::as_str).unwrap_or("#c8a45a");
+    let outline = t.swatch.first().map(String::as_str).unwrap_or("#141214");
+    cursors::catalog(accent, outline)
+}
+
+/// "Glass" themes get a native window effect on macOS (vibrancy). Windows windows stay
+/// opaque (see full_css), so there is nothing to apply or clear there.
 pub fn apply_effect(app: &AppHandle, effect: &str) {
-    let glass = effect == "glass";
-    for label in ["main", "settings"] {
-        if let Some(w) = app.get_webview_window(label) {
-            // On Windows, set_effects(None) immediately after window creation can
-            // reset the composition controller and leave a blank surface. Only
-            // clear effects when we are actually switching away from glass.
-            #[cfg(target_os = "windows")]
-            {
-                if !glass {
-                    // Leave the opaque window alone; no effect to clear.
-                    continue;
-                }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = (app, effect);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let glass = effect == "glass";
+        for label in ["main", "settings"] {
+            if let Some(w) = app.get_webview_window(label) {
+                let cfg: Option<WindowEffectsConfig> = glass.then(glass_config).flatten();
+                let _ = w.set_effects(cfg);
             }
-            let cfg: Option<WindowEffectsConfig> = glass.then(|| glass_config()).flatten();
-            let _ = w.set_effects(cfg);
         }
     }
 }
@@ -103,11 +131,6 @@ fn glass_config() -> Option<WindowEffectsConfig> {
     Some(EffectsBuilder::new().effect(Effect::HudWindow).state(EffectState::Active).radius(10.0).build())
 }
 
-#[cfg(target_os = "windows")]
-fn glass_config() -> Option<WindowEffectsConfig> {
-    // Mica needs Windows 11; on Windows 10 set_effects fails and the error is ignored above.
-    Some(EffectsBuilder::new().effect(Effect::Mica).build())
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(target_os = "macos"))]
+#[allow(dead_code)]
 fn glass_config() -> Option<WindowEffectsConfig> { None }

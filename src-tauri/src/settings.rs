@@ -32,6 +32,8 @@ fn default_version() -> u32 {
     0
 }
 
+pub const SPLASH_IDS: &[&str] = &["wings", "rose", "stars", "gates", "sigil", "vigil", "random"];
+
 pub fn config_dir(app: &AppHandle) -> PathBuf {
     // macOS:   ~/Library/Application Support/<identifier>
     // Windows: %APPDATA%\<identifier>
@@ -95,6 +97,18 @@ pub struct Settings {
     #[serde(default = "default_intro")]
     pub intro: bool,
 
+    /// Which splash animation plays at launch (see SPLASH_IDS).
+    pub splash: String,
+
+    /// Custom cursor set (see cursors::IDS). "system" leaves the OS cursor alone.
+    pub cursor: String,
+
+    /// Memory ceiling in MB for the app and its webview. 0 = off.
+    pub ram_limit_mb: u32,
+
+    /// Battery saver turns on at or below this percentage while unplugged. 0 = off.
+    pub battery_saver_pct: u32,
+
     #[serde(default = "default_version")]
     pub version: u32,
 }
@@ -105,6 +119,10 @@ impl Default for Settings {
             theme: "gothic-cathedral".into(),
             adblock: true,
             intro: true,
+            splash: "wings".into(),
+            cursor: "system".into(),
+            ram_limit_mb: 0,
+            battery_saver_pct: 20,
 
             lists: vec![
                 core_list(),
@@ -217,6 +235,9 @@ pub struct AppState {
     /// 3 failed -> JS layer only
     /// 5 WebView2 request filter active (Windows)
     pub native: AtomicU8,
+
+    /// Latest memory / battery sample (see limits.rs).
+    pub limits: Mutex<crate::limits::Status>,
 }
 
 impl AppState {
@@ -226,6 +247,7 @@ impl AppState {
             rules: Mutex::new(Compiled::default()),
             blocked: AtomicU64::new(0),
             native: AtomicU8::new(0),
+            limits: Mutex::new(crate::limits::Status::default()),
         }
     }
 }

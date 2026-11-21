@@ -4,6 +4,8 @@
 compile_error!("Seraphtube supports macOS and Windows only.");
 
 mod adblock;
+mod cursors;
+mod limits;
 mod performance;
 mod settings;
 mod themes;
@@ -94,7 +96,7 @@ pub fn payload(app: &AppHandle) -> Value {
     let s = st.settings.lock().unwrap().clone();
     let r = st.rules.lock().unwrap().clone();
     let t = themes::find(app, &s.theme);
-    json!({ "on": s.adblock, "intro": s.intro, "hosts": r.hosts, "needles": r.needles, "theme": { "id": t.id, "css": themes::full_css(&t) } })
+    json!({ "on": s.adblock, "intro": s.intro, "splash": s.splash, "hosts": r.hosts, "needles": r.needles, "theme": { "id": t.id, "css": themes::full_css(&t, &s.cursor) } })
 }
 
 pub fn push_state(app: &AppHandle) {
@@ -149,16 +151,11 @@ fn show_settings(app: &AppHandle) {
     // transparent layered window. Keep opaque unless the active theme is glass.
     #[cfg(target_os = "windows")]
     {
-        if glass {
-            builder = builder
-                .transparent(true)
-                .shadow(false)
-                .background_color(Color(0, 0, 0, 0));
-        } else {
-            builder = builder
-                .transparent(false)
-                .background_color(Color(20, 18, 20, 255));
-        }
+        // Always opaque: transparent (layered) WebView2 windows freeze animations and can fail
+        // to paint. Glass themes use a solid backdrop on Windows (see themes::full_css).
+        builder = builder
+            .transparent(false)
+            .background_color(Color(20, 18, 20, 255));
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -167,6 +164,7 @@ fn show_settings(app: &AppHandle) {
 
     match builder.build() {
         Ok(w) => {
+            log_startup("[settings] Sanctum window built");
             let _ = w.show();
             let _ = w.set_focus();
             // Nudge size so WebView2 compositor actually presents the surface.
@@ -179,6 +177,11 @@ fn show_settings(app: &AppHandle) {
                     }));
                     let _ = w.set_size(tauri::Size::Physical(size));
                 }
+                // WebView2 can leave the first frame transparent on a freshly created
+                // window; toggling visibility forces a present.
+                let _ = w.hide();
+                let _ = w.show();
+                let _ = w.set_focus();
             }
             // Defer glass effects until after the first paint on Windows.
             if glass {
@@ -204,7 +207,9 @@ fn get_state(app: AppHandle, st: State<AppState>) -> Value {
     json!({
         "settings": settings,
         "themes": themes::all(&app),
-        "css": themes::full_css(&theme),
+        "css": themes::full_css(&theme, &settings.cursor),
+        "cursors": themes::cursor_catalog(&theme),
+        "limits": st.limits.lock().unwrap().clone(),
         "native": st.native.load(Relaxed),
         "rules": st.rules.lock().unwrap().native,
         "blocked": st.blocked.load(Relaxed),
@@ -219,8 +224,16 @@ fn get_stats(st: State<AppState>) -> Value {
 }
 #[tauri::command]
 fn record_block(n: u64, st: State<AppState>) { st.blocked.fetch_add(n.min(10_000), Relaxed); }
+// The command is async so it does not block the main thread, but the actual window
+// creation must run on the main thread. On Windows, building a WebView2 window from
+// the async tokio runtime can silently fail or deadlock.
 #[tauri::command]
-fn open_settings(app: AppHandle) { show_settings(&app); }
+async fn open_settings(app: AppHandle) {
+    let app2 = app.clone();
+    if let Err(error) = app.run_on_main_thread(move || show_settings(&app2)) {
+        log_startup(format!("[settings] could not dispatch Sanctum to main thread: {error}"));
+    }
+}
 
 #[tauri::command]
 fn set_theme(app: AppHandle, id: String) -> Result<String, String> {
@@ -228,7 +241,8 @@ fn set_theme(app: AppHandle, id: String) -> Result<String, String> {
     { let st = app.state::<AppState>(); let mut s = st.settings.lock().unwrap(); s.theme = id; s.save(&app); }
     themes::apply_effect(&app, &t.effect);
     push_state(&app); // hot-swap in the YouTube window
-    Ok(themes::full_css(&t))
+    let cursor = app.state::<AppState>().settings.lock().unwrap().cursor.clone();
+    Ok(themes::full_css(&t, &cursor))
 }
 #[tauri::command]
 fn set_intro(app: AppHandle, on: bool) -> Result<(), String> {
@@ -251,6 +265,55 @@ fn set_intro(app: AppHandle, on: bool) -> Result<(), String> {
 
     Ok(())
 }
+#[tauri::command]
+fn set_splash(app: AppHandle, id: String) -> Result<(), String> {
+    if !settings::SPLASH_IDS.contains(&id.as_str()) {
+        return Err("unknown splash animation".into());
+    }
+    let st = app.state::<AppState>();
+    let mut s = st.settings.lock().map_err(|e| e.to_string())?;
+    s.splash = id;
+    s.save(&app);
+    Ok(())
+}
+
+#[tauri::command]
+fn set_cursor(app: AppHandle, id: String) -> Result<String, String> {
+    if !cursors::exists(&id) {
+        return Err("unknown cursor".into());
+    }
+    let theme_id = {
+        let st = app.state::<AppState>();
+        let mut s = st.settings.lock().map_err(|e| e.to_string())?;
+        s.cursor = id.clone();
+        s.save(&app);
+        s.theme.clone()
+    };
+    let theme = themes::find(&app, &theme_id);
+    push_state(&app); // live in the YouTube window
+    Ok(themes::full_css(&theme, &id))
+}
+
+#[tauri::command]
+fn set_limits(app: AppHandle, ram_mb: u32, battery_pct: u32) -> Result<(), String> {
+    let st = app.state::<AppState>();
+    let mut s = st.settings.lock().map_err(|e| e.to_string())?;
+    s.ram_limit_mb = ram_mb.min(65_536);
+    s.battery_saver_pct = battery_pct.min(100);
+    s.save(&app);
+    Ok(())
+}
+
+#[tauri::command]
+fn get_limits(st: State<AppState>) -> Value {
+    let s = st.settings.lock().unwrap().clone();
+    json!({
+        "status": st.limits.lock().unwrap().clone(),
+        "ramLimitMb": s.ram_limit_mb,
+        "batterySaverPct": s.battery_saver_pct,
+    })
+}
+
 #[tauri::command]
 fn set_adblock(app: AppHandle, on: bool) {
     { let st = app.state::<AppState>(); let mut s = st.settings.lock().unwrap(); s.adblock = on; s.save(&app); }
@@ -316,6 +379,40 @@ fn build_menu(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// For the first two minutes, check every couple of seconds that the UI thread still runs
+/// queued work, and log if it does not. A blocked UI thread (for example a window created
+/// from a synchronous command on Windows) freezes the whole app without any error, so this
+/// is the line to look for in startup.log.
+fn start_heartbeat(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        let mut stalled = 0u64;
+        while started.elapsed() < Duration::from_secs(120) {
+            std::thread::sleep(Duration::from_secs(2));
+            let (tx, rx) = std::sync::mpsc::channel::<()>();
+            if app.run_on_main_thread(move || { let _ = tx.send(()); }).is_err() {
+                return;
+            }
+            match rx.recv_timeout(Duration::from_secs(3)) {
+                Ok(()) => {
+                    if stalled > 0 {
+                        log_startup(format!("[heartbeat] UI thread recovered after about {stalled}s"));
+                        stalled = 0;
+                    }
+                }
+                Err(_) => {
+                    stalled += 5;
+                    log_startup(format!("[heartbeat] UI thread has not responded for about {stalled}s"));
+                    if stalled >= 30 {
+                        return;
+                    }
+                }
+            }
+        }
+    });
+}
+
 fn main() {
     std::panic::set_hook(Box::new(|panic| {
         log_startup(format!("[panic] {panic:?}\n{}", std::backtrace::Backtrace::force_capture()));
@@ -354,7 +451,10 @@ fn main() {
 
     #[cfg(target_os = "macos")]
     let builder = builder.on_menu_event(|app, e| match e.id().as_ref() {
-        "settings" => show_settings(app),
+        "settings" => {
+            let app = app.clone();
+            std::thread::spawn(move || show_settings(&app));
+        }
         "reload" => eval_main(app, "location.reload()"),
         "back" => eval_main(app, "history.back()"),
         "fwd" => eval_main(app, "history.forward()"),
@@ -364,7 +464,7 @@ fn main() {
 
     builder
         .invoke_handler(tauri::generate_handler![
-            get_state, get_stats, set_theme, set_adblock, set_intro, update_filters, add_filter_list,
+            get_state, get_stats, set_theme, set_adblock, set_intro, set_splash, set_cursor, set_limits, get_limits, update_filters, add_filter_list,
             remove_filter_list, toggle_filter_list, open_themes_dir, record_block, open_settings,
             performance::get_performance, performance::set_performance
         ])
@@ -398,16 +498,9 @@ fn main() {
             // Use an opaque dark background on Windows unless the theme is glass.
             #[cfg(target_os = "windows")]
             {
-                if glass {
-                    window = window
-                        .transparent(true)
-                        .shadow(false)
-                        .background_color(Color(0, 0, 0, 0));
-                } else {
-                    window = window
-                        .transparent(false)
-                        .background_color(Color(20, 18, 20, 255));
-                }
+                window = window
+                    .transparent(false)
+                    .background_color(Color(20, 18, 20, 255));
             }
             #[cfg(not(target_os = "windows"))]
             {
@@ -423,7 +516,7 @@ fn main() {
                 Err(error) => log_startup(format!("main webview built; URL unavailable: {error}")),
             }
 
-            // Force WebView2 to present the first frame (size nudge).
+            // Force WebView2 to present the first frame (size nudge + visibility toggle).
             #[cfg(target_os = "windows")]
             {
                 if let Ok(size) = built.inner_size() {
@@ -433,6 +526,7 @@ fn main() {
                     }));
                     let _ = built.set_size(tauri::Size::Physical(size));
                 }
+                let _ = built.hide();
                 let _ = built.show();
                 let _ = built.set_focus();
             }
@@ -450,6 +544,9 @@ fn main() {
                 // themes::apply_effect is guarded on Windows for None.
                 themes::apply_effect(&h, &theme.effect);
             }
+
+            start_heartbeat(&h);
+            limits::start(&h);
 
             log_startup("starting initial filter rebuild");
             adblock::rebuild(&h, true);

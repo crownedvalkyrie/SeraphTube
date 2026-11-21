@@ -19,6 +19,8 @@
   let statsTimer = null;
   let activeTab = 'appearance';
   let themeQuery = '';
+  let limitsTimer = null;
+  let splashPreviewed = false;
 
   function showError(error) {
     const message = String(error?.message || error || 'Unknown error');
@@ -51,6 +53,7 @@
       if (pane) pane.hidden = !on;
     }
     if (name === 'ward') startStats(); else stopStats();
+    if (name === 'performance') startLimits(); else stopLimits();
   }
 
   for (const tab of tabs) {
@@ -77,6 +80,7 @@
       if (state && state.settings) state.settings.theme = id;
       paint(id, css);
       renderThemes();
+      await loadState(); // cursor previews take the new theme's accent colour
     } catch (error) {
       showError(error);
     }
@@ -135,6 +139,132 @@
       );
       return button;
     }));
+  }
+
+  // ---- cursors ---------------------------------------------------------------------------------
+  async function pickCursor(id) {
+    try {
+      const css = await invoke('set_cursor', { id });
+      if (state && state.settings) state.settings.cursor = id;
+      paint(state?.settings?.theme, css);
+      renderCursors();
+    } catch (error) {
+      showError(error);
+    }
+  }
+
+  function renderCursors() {
+    const box = $('#cursors');
+    if (!box) return;
+    const current = state?.settings?.cursor || 'system';
+    box.replaceChildren(...(state?.cursors || []).map((item) => {
+      const images = item.arrow
+        ? h('span', { className: 'cursor-imgs' },
+            h('img', { src: item.arrow, alt: '', width: 32, height: 32 }),
+            h('img', { src: item.hand, alt: '', width: 32, height: 32 }))
+        : h('span', { className: 'cursor-imgs sys' }, 'Aa');
+      const button = h('button', {
+        type: 'button',
+        className: 'cursor-opt',
+        'aria-checked': item.id === current,
+        'aria-label': item.name,
+        onclick: () => pickCursor(item.id),
+      }, images, h('small', {}, item.name));
+      button.setAttribute('role', 'radio');
+      return button;
+    }));
+  }
+
+  // ---- launch animation ---------------------------------------------------------------------
+  const SPLASHES = [
+    ['wings', 'Seraph Wings', 'Halo and wings unfurl feather by feather.'],
+    ['rose', 'Rose Window', 'A stained-glass rose window assembles.'],
+    ['stars', 'Constellation', 'Stars wake and draw a winged cross.'],
+    ['gates', 'Cathedral Gates', 'Great doors swing open on a flood of light.'],
+    ['sigil', 'Sigil Circle', 'Rings and runes ignite around an eye.'],
+    ['vigil', 'Candle Vigil', 'Candles kindle one by one.'],
+    ['random', 'Surprise me', 'A different one every launch.'],
+  ];
+
+  function previewSplash(id) {
+    const frame = $('#splash-preview');
+    if (!frame) return;
+    frame.src = 'about:blank';                       // a hash change alone would not replay it
+    requestAnimationFrame(() => { frame.src = 'splash.html#' + id; });
+  }
+
+  async function pickSplash(id) {
+    try {
+      await invoke('set_splash', { id });
+      if (state && state.settings) state.settings.splash = id;
+      renderSplashes();
+      previewSplash(id);
+    } catch (error) {
+      showError(error);
+    }
+  }
+
+  function renderSplashes() {
+    const box = $('#splashes');
+    if (!box) return;
+    const current = state?.settings?.splash || 'wings';
+    box.replaceChildren(...SPLASHES.map(([id, name, blurb]) => {
+      const button = h('button', {
+        type: 'button',
+        className: 'splash-opt',
+        'aria-checked': id === current,
+        onclick: () => pickSplash(id),
+      }, h('b', {}, name), h('small', {}, blurb));
+      button.setAttribute('role', 'radio');
+      return button;
+    }));
+  }
+
+  // ---- resource limits ------------------------------------------------------------------------
+  const RAM_STEPS = [0, 512, 768, 1024, 1536, 2048, 3072, 4096];
+  const fmtMb = (mb) => (mb >= 1024 ? (mb / 1024).toFixed(mb % 1024 ? 1 : 0) + ' GB' : mb + ' MB');
+  const ramLabel = (mb) => (mb === 0 ? 'Off' : fmtMb(mb));
+  const batteryLabel = (pct) => (pct === 0 ? 'Off' : pct >= 100 ? 'Whenever unplugged' : 'At ' + pct + '% or below');
+  const nearestStep = (mb) => RAM_STEPS.reduce((best, step, i) => (Math.abs(step - mb) < Math.abs(RAM_STEPS[best] - mb) ? i : best), 0);
+
+  function renderLimits() {
+    const s = state?.settings || {};
+    const ram = $('#ram-limit');
+    const battery = $('#battery-limit');
+    if (ram) { ram.value = String(nearestStep(Number(s.ram_limit_mb) || 0)); $('#ram-value').textContent = ramLabel(RAM_STEPS[Number(ram.value)]); }
+    if (battery) { battery.value = String(Number(s.battery_saver_pct ?? 20)); $('#bat-value').textContent = batteryLabel(Number(battery.value)); }
+  }
+
+  function showLimitsLive(data) {
+    const status = data?.status || {};
+    const limit = Number(data?.ramLimitMb) || 0;
+    const used = Number(status.used_mb) || 0;
+    const ramLive = $('#ram-live');
+    if (ramLive) {
+      ramLive.textContent = used > 0
+        ? 'Using about ' + fmtMb(used) + (limit ? ' of ' + fmtMb(limit) : '') + (status.over_limit ? ' \u00b7 over the limit' : '')
+        : 'Measuring\u2026';
+    }
+    const batLive = $('#bat-live');
+    if (batLive) {
+      batLive.textContent = status.battery_percent == null
+        ? 'No battery detected.'
+        : status.battery_percent + '% \u00b7 ' + (status.on_battery ? 'on battery' : 'plugged in') + (status.saver ? ' \u00b7 saver active' : '');
+    }
+  }
+
+  async function refreshLimits() {
+    if (document.hidden) return;
+    try { showLimitsLive(await invoke('get_limits')); } catch (_) { /* optional readout */ }
+  }
+  function startLimits() { stopLimits(); limitsTimer = setInterval(refreshLimits, 3000); refreshLimits(); }
+  function stopLimits() { if (limitsTimer !== null) clearInterval(limitsTimer); limitsTimer = null; }
+
+  async function saveLimits() {
+    const ram = RAM_STEPS[Number($('#ram-limit').value)] || 0;
+    const pct = Number($('#battery-limit').value) || 0;
+    try { await invoke('set_limits', { ramMb: ram, batteryPct: pct }); refreshLimits(); }
+    catch (error) { showError(error); }
   }
 
   // ---- filter lists ---------------------------------------------------------------------------
@@ -241,6 +371,10 @@
     state = await invoke('get_state');
     paint(state.settings?.theme, state.css);
     renderThemes();
+    renderCursors();
+    renderSplashes();
+    renderLimits();
+    if (!splashPreviewed) { splashPreviewed = true; previewSplash(state.settings?.splash || 'wings'); }
     renderLists();
     if ($('#adblock')) $('#adblock').checked = Boolean(state.settings?.adblock);
     if ($('#intro')) $('#intro').checked = state.settings?.intro !== false;
@@ -289,6 +423,13 @@
       renderThemes();
     });
   }
+
+  $('#splash-replay')?.addEventListener('click', () => previewSplash(state?.settings?.splash || 'wings'));
+
+  $('#ram-limit')?.addEventListener('input', (event) => { $('#ram-value').textContent = ramLabel(RAM_STEPS[Number(event.target.value)] || 0); });
+  $('#battery-limit')?.addEventListener('input', (event) => { $('#bat-value').textContent = batteryLabel(Number(event.target.value)); });
+  $('#ram-limit')?.addEventListener('change', saveLimits);
+  $('#battery-limit')?.addEventListener('change', saveLimits);
 
   $('#adblock')?.addEventListener('change', async (event) => {
     const toggle = event.currentTarget;
@@ -374,8 +515,9 @@
   });
 
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) stopStats();
+    if (document.hidden) { stopStats(); stopLimits(); }
     else if (activeTab === 'ward') startStats();
+    else if (activeTab === 'performance') startLimits();
   });
 
   (async function initialize() {

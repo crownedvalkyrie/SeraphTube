@@ -6,6 +6,7 @@ fn main() {
             "add_filter_list", "remove_filter_list", "toggle_filter_list",
             "open_themes_dir", "record_block", "open_settings",
             "get_performance", "set_performance", "set_intro",
+            "set_splash", "set_cursor", "set_limits", "get_limits",
         ])),
     )
     .expect("tauri-build failed");

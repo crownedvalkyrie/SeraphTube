@@ -59,6 +59,24 @@
           <button id="rescan" type="button">Rescan themes</button>
         </div>
         <p class="hint">Make your own: open the themes folder, copy <code>_template.json</code>, rename it, and rescan. Themes can recolour YouTube through its own design tokens, which keeps pages fast.</p>
+
+        <div class="card">
+          <h2>Cursor</h2>
+          <p class="hint" style="margin:0 0 12px">Custom cursors take the theme's accent colour and apply to YouTube and this window. The video player keeps its own cursor so controls hide normally.</p>
+          <div id="cursors" class="cursors" role="radiogroup" aria-label="Cursor style"></div>
+        </div>
+
+        <div class="card">
+          <h2>Launch animation</h2>
+          <div class="splash-wrap">
+            <div class="splash-preview"><iframe id="splash-preview" title="Launch animation preview" src="about:blank" tabindex="-1"></iframe></div>
+            <div id="splashes" class="splashes" role="radiogroup" aria-label="Launch animation"></div>
+          </div>
+          <div class="actions">
+            <button id="splash-replay" type="button">Replay</button>
+            <small>Switch the animation on or off on the Performance tab.</small>
+          </div>
+        </div>
       </section>
 
       <section class="pane" id="pane-ward" role="tabpanel" aria-labelledby="tab-ward" hidden>
@@ -127,6 +145,33 @@
             <input id="intro" class="switch" type="checkbox" role="switch" />
           </label>
         </div>
+        <div class="card">
+          <h2>Resource limits</h2>
+
+          <div class="limit">
+            <div class="row">
+              <span><b>Memory limit</b><small>Keeps Seraphtube and its web view under a ceiling.</small></span>
+              <output id="ram-value" for="ram-limit">Off</output>
+            </div>
+            <input id="ram-limit" class="range" type="range" min="0" max="7" step="1" value="0" aria-label="Memory limit" />
+            <p class="hint" id="ram-live"></p>
+          </div>
+
+          <div class="limit">
+            <div class="row">
+              <span><b>Battery saver</b><small>Eases off when you are unplugged and the battery runs low.</small></span>
+              <output id="bat-value" for="battery-limit">Off</output>
+            </div>
+            <input id="battery-limit" class="range" type="range" min="0" max="100" step="5" value="20" aria-label="Battery saver threshold" />
+            <p class="hint" id="bat-live"></p>
+          </div>
+
+          <ul class="bullets">
+            <li><b>Memory limit.</b> Over the ceiling, Seraphtube first trims hover previews and caches. If it is still over after about 25 seconds and nothing is playing, it reloads the page and resumes your video where you were. A playing video is never interrupted. Figures are approximate.</li>
+            <li><b>Battery saver.</b> While unplugged and at or below the level you pick: Performance mode, hover previews off, and video capped at 720p. At 100% it applies whenever you are unplugged.</li>
+          </ul>
+        </div>
+
         <ul class="bullets">
           <li><b>Balanced</b> removes ad slots from feeds as they render and prunes ads from larger responses.</li>
           <li><b>Performance</b> prunes a smaller slice of each response and skips the one page rule that re-checks the layout as it changes. It never touches YouTube's own animations.</li>

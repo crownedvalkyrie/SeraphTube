@@ -14,6 +14,7 @@
 //!   1. Each rule's longest literal substring goes into an Aho-Corasick automaton.
 //!   2. One pass over the URL yields candidate rules.
 //!   3. Only candidates are checked (resource type, party, domains, regex).
+//!
 //!   Regexes compile lazily on first candidate hit, so startup stays fast.
 
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
@@ -92,7 +93,7 @@ impl Rule {
         {
             return false;
         }
-        self.regex().map_or(false, |re| re.is_match(req.url))
+        self.regex().is_some_and(|re| re.is_match(req.url))
     }
 }
 
@@ -172,6 +173,46 @@ pub struct Matcher {
     allow: RuleSet,
 }
 
+/// What the WebView2 hook should subscribe to.
+///
+/// Subscribing to everything (`*`, all resource types) sends every request the page makes, even
+/// each video segment, through the UI thread. Almost all of those can never match a rule, so
+/// when every blocking rule is anchored to a host we subscribe to those hosts only.
+pub struct WireFilters {
+    /// WebView2 URI patterns, e.g. `*://*.doubleclick.net/*`. Registered for all resource types.
+    pub patterns: Vec<String>,
+    /// Some rule is not host-anchored (EasyList path rules, for example): fall back to a
+    /// wildcard subscription, minus documents, media and fonts.
+    pub wildcard: bool,
+}
+
+const MAX_HOST_FILTERS: usize = 300;
+
+/// The host of a rule produced by `adblock::to_regex` for `||host^`-style patterns, or None
+/// when the rule is anything more general.
+fn plain_host(pattern: &str) -> Option<String> {
+    let mid = pattern.strip_prefix(PREFIX)?;
+    let mut host = String::new();
+    let mut chars = mid.chars();
+
+    while let Some(c) = chars.next() {
+        match c {
+            c if c.is_ascii_alphanumeric() || c == '-' => host.push(c.to_ascii_lowercase()),
+            '\\' => match chars.next() {
+                Some('.') => host.push('.'),
+                _ => return None,
+            },
+            other => {
+                // End of the host: what follows must be the tail, the end, or a path.
+                let rest: String = std::iter::once(other).chain(chars).collect();
+                let ok = rest == TAIL || rest == "$" || rest.starts_with('/');
+                return (ok && host.contains('.') && host.len() >= 4 && !host.ends_with('.')).then_some(host);
+            }
+        }
+    }
+    (host.contains('.') && host.len() >= 4).then_some(host)
+}
+
 impl Matcher {
     /// Build from the WebKit content-rule JSON that `adblock::build` emits.
     /// Cosmetic (`css-display-none`) rules are ignored: the JS layer handles them.
@@ -237,6 +278,36 @@ impl Matcher {
             block: RuleSet::build(block),
             allow: RuleSet::build(allow),
         })
+    }
+
+    pub fn wire_filters(&self) -> WireFilters {
+        let mut hosts = std::collections::BTreeSet::new();
+        let mut wildcard = false;
+
+        for rule in &self.block.rules {
+            match plain_host(&rule.pattern) {
+                Some(host) => {
+                    hosts.insert(host);
+                }
+                None => {
+                    wildcard = true;
+                    break;
+                }
+            }
+        }
+        if hosts.len() > MAX_HOST_FILTERS {
+            wildcard = true;
+        }
+
+        let patterns = if wildcard {
+            Vec::new()
+        } else {
+            hosts
+                .iter()
+                .flat_map(|host| [format!("*://{host}/*"), format!("*://*.{host}/*")])
+                .collect()
+        };
+        WireFilters { patterns, wildcard }
     }
 
     /// `ctx` is COREWEBVIEW2_WEBRESOURCE_CONTEXT as an integer.
@@ -395,7 +466,7 @@ pub mod native {
     use crate::settings::AppState;
     use std::sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, RwLock,
+        Arc, Mutex, RwLock,
     };
 
     use tauri::{webview::PlatformWebview, AppHandle, Manager};
@@ -405,15 +476,22 @@ pub mod native {
     };
 
     use windows::{
-        core::{w, PWSTR},
+        core::{w, HSTRING, PWSTR},
         Win32::System::Com::IStream,
     };
 
     type EventRegistrationToken = i64;
 
-    // The handler is registered once per webview and reads the live matcher.
+    // The handler is registered once per webview and reads the live matcher; what changes on a
+    // rebuild is only which requests it is subscribed to (see `sync_filters`).
     static ACTIVE: RwLock<Option<Arc<Matcher>>> = RwLock::new(None);
     static ATTACHED: AtomicBool = AtomicBool::new(false);
+    /// (uri pattern, resource context) pairs currently registered with WebView2.
+    static FILTERS: Mutex<Vec<(String, i32)>> = Mutex::new(Vec::new());
+
+    /// Resource contexts for the wildcard fallback: stylesheets, images, scripts, XHR, fetch,
+    /// pings and "other". Documents, media (video bytes), fonts and sockets are left alone.
+    const WILDCARD_CONTEXTS: [i32; 7] = [2, 3, 6, 7, 8, 14, 16];
 
     pub fn set_active(matcher: Option<Arc<Matcher>>) {
         if let Ok(mut slot) = ACTIVE.write() {
@@ -425,78 +503,110 @@ pub mod native {
         ACTIVE.read().ok().and_then(|slot| slot.clone())
     }
 
-    /// Runs on the main thread (inside with_webview). Idempotent.
-    pub fn attach(webview: &PlatformWebview, app: AppHandle) -> bool {
-        if ATTACHED.load(Ordering::Acquire) {
-            return true;
+    fn desired_filters() -> Vec<(String, i32)> {
+        let Some(matcher) = active() else {
+            return Vec::new();
+        };
+        let wire = matcher.wire_filters();
+        if wire.wildcard {
+            WILDCARD_CONTEXTS.iter().map(|ctx| ("*".to_string(), *ctx)).collect()
+        } else {
+            // 0 = COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL
+            wire.patterns.into_iter().map(|pattern| (pattern, 0)).collect()
+        }
+    }
+
+    /// Make the registered filters match the active matcher: remove stale ones, add new ones.
+    unsafe fn sync_filters(core: &ICoreWebView2) {
+        let want = desired_filters();
+        let mut have = FILTERS.lock().unwrap();
+
+        for (uri, ctx) in have.iter().filter(|filter| !want.contains(filter)) {
+            let _ = core.RemoveWebResourceRequestedFilter(
+                &HSTRING::from(uri.as_str()),
+                COREWEBVIEW2_WEB_RESOURCE_CONTEXT(*ctx),
+            );
         }
 
+        let mut next = Vec::with_capacity(want.len());
+        for filter in want {
+            if have.contains(&filter) {
+                next.push(filter);
+                continue;
+            }
+            let added = core.AddWebResourceRequestedFilter(
+                &HSTRING::from(filter.0.as_str()),
+                COREWEBVIEW2_WEB_RESOURCE_CONTEXT(filter.1),
+            );
+            if added.is_ok() {
+                next.push(filter);
+            }
+        }
+        *have = next;
+    }
+
+    /// Runs on the main thread (inside with_webview). Safe to call again after every rebuild.
+    pub fn attach(webview: &PlatformWebview, app: AppHandle) -> bool {
         let attached = unsafe {
             (|| -> windows::core::Result<()> {
                 let core = webview.controller().CoreWebView2()?;
-                let env = webview.environment();
 
-                core.AddWebResourceRequestedFilter(w!("*"), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL)?;
+                if !ATTACHED.load(Ordering::Acquire) {
+                    let env = webview.environment();
 
-                let handler =
-                    WebResourceRequestedEventHandler::create(Box::new(move |sender, args| {
-                        let (Some(args), Some(matcher)) = (args, active()) else {
-                            return Ok(());
-                        };
+                    let handler =
+                        WebResourceRequestedEventHandler::create(Box::new(move |sender, args| {
+                            let (Some(args), Some(matcher)) = (args, active()) else {
+                                return Ok(());
+                            };
 
-                        let request = args.Request()?;
+                            let request = args.Request()?;
+                            let mut uri = PWSTR::null();
+                            request.Uri(&mut uri)?;
+                            let url = take_pwstr(uri);
 
-                        let mut uri = PWSTR::null();
-                        request.Uri(&mut uri)?;
+                            let mut ctx = COREWEBVIEW2_WEB_RESOURCE_CONTEXT::default();
+                            args.ResourceContext(&mut ctx)?;
 
-                        let url = take_pwstr(uri);
+                            let page = || {
+                                sender
+                                    .as_ref()
+                                    .and_then(|s| {
+                                        let mut p = PWSTR::null();
+                                        s.Source(&mut p).ok()?;
+                                        Some(take_pwstr(p))
+                                    })
+                                    .unwrap_or_default()
+                            };
 
-                        let mut ctx = COREWEBVIEW2_WEB_RESOURCE_CONTEXT::default();
+                            if matcher.should_block(&url, ctx.0, page) {
+                                let response = env.CreateWebResourceResponse(
+                                    None::<&IStream>,
+                                    403,
+                                    w!("Blocked"),
+                                    w!("Content-Type: text/plain"),
+                                )?;
+                                args.SetResponse(&response)?;
+                                app.state::<AppState>()
+                                    .blocked
+                                    .fetch_add(1, Ordering::Relaxed);
+                            }
 
-                        args.ResourceContext(&mut ctx)?;
+                            Ok(())
+                        }));
 
-                        let page = || {
-                            sender
-                                .as_ref()
-                                .and_then(|s| {
-                                    let mut p = PWSTR::null();
-                                    s.Source(&mut p).ok()?;
-                                    Some(take_pwstr(p))
-                                })
-                                .unwrap_or_default()
-                        };
+                    let mut token = EventRegistrationToken::default();
+                    core.add_WebResourceRequested(&handler, &mut token)?;
+                    ATTACHED.store(true, Ordering::Release);
+                }
 
-                        if matcher.should_block(&url, ctx.0, page) {
-                            let response = env.CreateWebResourceResponse(
-                                None::<&IStream>,
-                                403,
-                                w!("Blocked"),
-                                w!("Content-Type: text/plain"),
-                            )?;
-
-                            args.SetResponse(&response)?;
-
-                            app.state::<AppState>()
-                                .blocked
-                                .fetch_add(1, Ordering::Relaxed);
-                        }
-
-                        Ok(())
-                    }));
-
-                let mut token = EventRegistrationToken::default();
-
-                core.add_WebResourceRequested(&handler, &mut token)?;
-
+                sync_filters(&core);
                 Ok(())
             })()
         };
 
         match attached {
-            Ok(()) => {
-                ATTACHED.store(true, Ordering::Release);
-                true
-            }
+            Ok(()) => true,
             Err(error) => {
                 eprintln!("[adblock] WebView2 request hook failed: {error}");
                 false
@@ -566,6 +676,37 @@ mod tests {
     #[test]
     fn frame_documents_need_an_explicit_type() {
         assert!(!block("https://ads.example.com/", 1));
+    }
+
+    #[test]
+    fn plain_hosts_are_recognised() {
+        assert_eq!(
+            plain_host("^[^:]+:(//)?([^/]+\\.)?doubleclick\\.net([/:&?].*)?$").as_deref(),
+            Some("doubleclick.net")
+        );
+        assert_eq!(
+            plain_host("^[^:]+:(//)?([^/]+\\.)?ads\\.example\\.com/banner").as_deref(),
+            Some("ads.example.com")
+        );
+        // path-only and wildcard rules are not host rules
+        assert_eq!(plain_host("/banner/ads/"), None);
+        assert_eq!(plain_host("^[^:]+:(//)?([^/]+\\.)?ads.*\\.example\\.com"), None);
+    }
+
+    #[test]
+    fn wire_filters_subscribe_to_hosts_only() {
+        let wire = Matcher::from_json(RULES).unwrap().wire_filters();
+        // RULES contains `youtube.com/pagead/`, doubleclick, tracker and ads hosts, all host-anchored
+        assert!(!wire.wildcard);
+        assert!(wire.patterns.contains(&"*://*.doubleclick.net/*".to_string()));
+        assert!(wire.patterns.contains(&"*://doubleclick.net/*".to_string()));
+    }
+
+    #[test]
+    fn generic_rules_force_a_wildcard() {
+        let json = r#"[{"trigger":{"url-filter":"/banner/ads/"},"action":{"type":"block"}}]"#;
+        let wire = Matcher::from_json(json).unwrap().wire_filters();
+        assert!(wire.wildcard && wire.patterns.is_empty());
     }
 
     #[test]

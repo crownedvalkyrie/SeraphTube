@@ -14,7 +14,10 @@
     count: 0,
     sent: 0,
     flushTimer: null,
-    performance: 'balanced',
+    performance: 'balanced',   // effective mode (user preference, or forced by the battery saver)
+    perfPref: 'balanced',      // what the user chose
+    saver: false,
+    lim: null,
     badge: null,
     host: null,
   });
@@ -76,7 +79,11 @@
     'ytd-companion-slot-renderer',
     'ytd-action-companion-ad-renderer',
     'ytd-mealbar-promo-renderer',
+    'ytd-shopping-panel-renderer',
+    'ytd-merchandise-shelf-renderer',
+    'ytd-paid-content-overlay-renderer',
     'ytm-promoted-sparkles-web-renderer',
+    'ytm-ad-slot-renderer',
     '#masthead-ad',
     '#player-ads',
     '.video-ads',
@@ -86,11 +93,16 @@
     '.ytp-ad-image-overlay',
     '.ytp-ad-preview-container',
     '.ytp-ad-progress-list',
+    '.ytp-ad-text',
+    '.ytp-ad-duration-remaining',
     'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-ads"]',
+    'ytd-popup-container:has(tp-yt-paper-dialog[style-target="host"])',
+    'tp-yt-paper-dialog[aria-labelledby*="adblock" i]',
+    'tp-yt-paper-dialog:has(yt-formatted-string:has-text(/ad blocker|adblock|ads are blocked/i))',
   ].join(',') + '{display:none!important}';
   // :has() re-evaluates on DOM changes, so Performance mode leaves it out. The data layer
   // already removes most ad slots before they render.
-  const COSMETIC_HAS = '@supports selector(a:has(b)){ytd-rich-item-renderer:has(ytd-ad-slot-renderer){display:none!important}}';
+  const COSMETIC_HAS = '@supports selector(a:has(b)){ytd-rich-item-renderer:has(ytd-ad-slot-renderer),ytd-rich-item-renderer:has(ytd-in-feed-ad-layout-renderer),ytd-rich-item-renderer:has(ytd-display-ad-renderer){display:none!important}}';
 
   const applyCosmetic = () =>
     setCosmetic(S.on ? COSMETIC + (S.performance === 'performance' ? '' : COSMETIC_HAS) : '');
@@ -136,10 +148,15 @@
     return false;
   }
 
-  // ---- ad removal from data ---------------------------------------------------------------
+  // ---- ad removal from data ------------------------------------------------------------
   // Player/API payloads carry ad fields; feed payloads carry ad items inside arrays. Removing
   // them before YouTube's own code sees them is cheaper and cleaner than hiding them later.
-  const AD_KEYS = ['adPlacements', 'playerAds', 'adSlots', 'adBreakHeartbeatParams'];
+  const AD_KEYS = [
+    'adPlacements', 'playerAds', 'adSlots', 'adBreakHeartbeatParams',
+    'adLoggingData', 'adSignalsInfo', 'adSafetyReason', 'adParams',
+  ];
+  // Nested keys to remove from objects (not just top-level arrays).
+  const AD_NESTED_KEYS = ['enforcementMessageViewModel', 'adBlockMessageViewModel'];
   const AD_ITEM_KEYS = [
     'adSlotRenderer',
     'promotedSparklesWebRenderer',
@@ -149,8 +166,14 @@
     'displayAdRenderer',
     'inFeedAdLayoutRenderer',
     'searchPyvRenderer',
+    'shoppingDisplayAdRenderer',
+    'brandVideoRenderer',
+    'brandVideoSingletonRenderer',
+    'mastheadAdRenderer',
+    'videoMastheadAdRenderer',
+    'engagementPanelAds',
   ];
-  const AD_MARKERS = AD_KEYS.concat(AD_ITEM_KEYS).map((key) => '"' + key + '"');
+  const AD_MARKERS = AD_KEYS.concat(AD_ITEM_KEYS).concat(AD_NESTED_KEYS).map((key) => '"' + key + '"');
 
   function isAdItem(item) {
     if (!item || typeof item !== 'object') return false;
@@ -198,7 +221,13 @@
       }
       for (const key in current) {
         const value = current[key];
-        if (value && typeof value === 'object') stack.push(value);
+        if (!value || typeof value !== 'object') continue;
+        // Remove known nested ad keys (e.g. auxiliaryUi.messageRenderers.enforcementMessageViewModel)
+        // without deleting the whole parent object.
+        if (AD_NESTED_KEYS.includes(key)) {
+          try { delete current[key]; removed += 1; continue; } catch (_) {}
+        }
+        stack.push(value);
       }
     }
 
@@ -227,7 +256,7 @@
     };
   }
 
-  for (const name of ['ytInitialPlayerResponse', 'ytInitialData']) {
+  for (const name of ['ytInitialPlayerResponse', 'ytInitialData', 'playerResponse']) {
     let value;
     try {
       Object.defineProperty(window, name, {
@@ -238,6 +267,61 @@
       });
     } catch (_) { /* YouTube may have defined a non-configurable property. */ }
   }
+
+  // ---- anti-adblock countermeasures ----------------------------------------------------
+  // YouTube checks a few global flags and prototype values to decide whether to show the
+  // "Ad blockers violate YouTube's Terms of Service" dialog. Neutralise them before the
+  // first script runs, and hide any dialog that still appears.
+  function antiAdblockPatch() {
+    try {
+      if (typeof Object.defineProperty === 'function') {
+        const zeroProps = ['adBlocksFound', 'adBlockCount'];
+        for (const key of zeroProps) {
+          try {
+            Object.defineProperty(Object.prototype, key, {
+              configurable: true,
+              enumerable: false,
+              get: () => 0,
+              set: () => {},
+            });
+          } catch (_) {}
+        }
+        // Pretend the player has already allowed an instream ad, which short-circuits
+        // some anti-adblock checks.
+        try {
+          Object.defineProperty(Object.prototype, 'hasAllowedInstreamAd', {
+            configurable: true,
+            enumerable: false,
+            get: () => true,
+            set: () => {},
+          });
+        } catch (_) {}
+      }
+      // Neutralise the popup model config if it is already present.
+      const cfg = window.yt && window.yt.config_ && window.yt.config_.openPopupConfig;
+      if (cfg && cfg.supportedPopups && cfg.supportedPopups.adBlockMessageViewModel) {
+        cfg.supportedPopups.adBlockMessageViewModel = false;
+      }
+    } catch (_) { /* best effort */ }
+  }
+  antiAdblockPatch();
+
+  // Hide any anti-adblock dialog that the page still tries to render.
+  function hideAdblockDialogs() {
+    if (!S.on) return;
+    const dialogs = document.querySelectorAll('tp-yt-paper-dialog, ytd-modal-with-title-and-button-renderer, ytd-enforcement-message-view-model');
+    for (const dialog of dialogs) {
+      const text = dialog.textContent || '';
+      if (/ad blocker|adblock|ads are blocked|turn off|disable.*ad|terms of service/i.test(text)) {
+        dialog.setAttribute('hidden', '');
+        dialog.style.display = 'none';
+        dialog.remove();
+        countBlocked();
+      }
+    }
+  }
+  const dialogObserver = new MutationObserver(hideAdblockDialogs);
+  onRoot(() => dialogObserver.observe(document.documentElement, { childList: true, subtree: true }));
 
   // ---- fetch / XHR / beacon -----------------------------------------------------------------
   const originalFetch = window.fetch;
@@ -274,6 +358,8 @@
   // ---- in-stream ads: skip, or race through them --------------------------------------------
   // Server-inserted ads can't be removed from the data. The player is observed only on watch
   // pages (no document-wide observer), and video state is restored the moment the ad ends.
+  // We keep manipulation conservative: high playback rates and seeks are easy for YouTube to
+  // detect, so we prefer clicking the skip button and only speed up unskippable short ads.
   const WATCH_PAGE = /^\/(watch|shorts|live|embed)(\/|$)/;
   const RETRY_MS = [120, 300, 700, 1500, 3000];
 
@@ -295,6 +381,24 @@
     saved = null;
   }
 
+  function findSkipButton() {
+    const selectors = [
+      '.ytp-skip-ad-button',
+      '.ytp-ad-skip-button',
+      '.ytp-ad-skip-button-modern',
+      '.ytp-skip-ad-button__text',
+      'button[class*="skip-ad"]',
+      'button[class*="ad-skip"]',
+      '.ytp-ad-skip-button-slot',
+      '.ytp-ad-skip-button-container',
+    ];
+    for (const selector of selectors) {
+      const btn = player.querySelector(selector);
+      if (btn && !btn.disabled && btn.offsetParent !== null) return btn;
+    }
+    return null;
+  }
+
   function onPlayerState() {
     if (!player) return;
 
@@ -307,8 +411,8 @@
       return;
     }
 
-    const skip = player.querySelector('.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern');
-    if (skip && !skip.disabled && skip !== lastSkip) {
+    const skip = findSkipButton();
+    if (skip && skip !== lastSkip) {
       lastSkip = skip;
       skip.click();
       countBlocked();
@@ -318,12 +422,13 @@
     if (!video) return;
     if (!saved) saved = { muted: video.muted, playbackRate: video.playbackRate };
     try {
-      video.muted = true;
-      video.playbackRate = 16;
-      // Ads are short; if the length is known, jump to the end instead of waiting at 16x.
+      // Mute so the ad is not heard; use a moderate speed to avoid detection.
+      if (!video.muted) video.muted = true;
+      if (video.playbackRate < 2) video.playbackRate = 4;
+      // Only seek on very short ads where jumping is unlikely to be measured.
       const length = video.duration;
-      if (Number.isFinite(length) && length > 0 && length < 180 && video.currentTime < length - 0.5) {
-        video.currentTime = length - 0.1;
+      if (Number.isFinite(length) && length > 0 && length <= 6 && video.currentTime < length - 0.3) {
+        video.currentTime = length - 0.05;
       }
     } catch (_) { /* The player can reject a rate change or seek. */ }
   }
@@ -358,7 +463,7 @@
     onPlayerState();
   }
 
-  document.addEventListener('yt-navigate-finish', () => attachPlayer(0));
+  document.addEventListener('yt-navigate-finish', () => { attachPlayer(0); if (S.saver) setTimeout(capQuality, 1500); });
   document.addEventListener('yt-page-data-updated', () => attachPlayer(0));
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => attachPlayer(0), { once: true });
   else attachPlayer(0);
@@ -393,11 +498,16 @@
   // Performance mode trims our own work (smaller prune budget, no :has() rule, no effects on
   // the settings button). It never touches YouTube's animations: forcing every animation to
   // ~0ms makes the looping loading spinner flicker and overlap.
-  function setPerformance(mode) {
-    S.performance = mode === 'performance' ? 'performance' : 'balanced';
+  function effectivePerformance() {
+    S.performance = S.perfPref === 'performance' || S.saver ? 'performance' : 'balanced';
     if (S.host) S.host.dataset.performance = S.performance;
     document.documentElement?.setAttribute('data-seraph-performance', S.performance);
     applyCosmetic();
+  }
+
+  function setPerformance(mode) {
+    S.perfPref = mode === 'performance' ? 'performance' : 'balanced';
+    effectivePerformance();
   }
 
   S.setPerformance = setPerformance;
@@ -426,6 +536,87 @@
 
   // The remote-page capability grants read-only access to this small enum.
   invoke('get_performance').then(setPerformance).catch(() => {});
+
+  // ---- resource limits ----------------------------------------------------------------------------
+  // The app measures memory and battery and pushes the result here every few seconds
+  // (limits.rs). This side does the work: battery saver, trimming, and recycling the page.
+  const SAVER_CSS = 'ytd-video-preview,ytd-moving-thumbnail-renderer{display:none!important}';
+  const setSaverStyle = styleSink('saver');
+  const RECYCLE_KEY = 'seraph:recycled';
+  const OVER_FOR_MS = 25000;       // how long we stay over the limit before recycling
+  const IDLE_FOR_MS = 20000;       // and how long nothing must be playing, so a pause never reloads under you
+  const TRIM_EVERY_MS = 30000;
+  const RECYCLE_COOLDOWN_MS = 180000;
+  let overSince = 0;
+  let idleSince = 0;
+  let lastTrim = 0;
+
+  // Best-effort: YouTube's player exposes this call, and it may change without notice.
+  function capQuality() {
+    try {
+      const p = document.getElementById('movie_player');
+      if (p && typeof p.setPlaybackQualityRange === 'function') p.setPlaybackQualityRange('tiny', 'hd720');
+    } catch (_) { /* player not ready */ }
+  }
+
+  function setSaver(on) {
+    on = Boolean(on);
+    if (S.saver === on) return;
+    S.saver = on;
+    setSaverStyle(on ? SAVER_CSS : '');
+    document.documentElement?.toggleAttribute('data-seraph-saver', on);
+    effectivePerformance();
+    if (on) capQuality();
+  }
+
+  function trimSoft() {
+    try {
+      document.querySelectorAll('ytd-video-preview').forEach((element) => element.remove());
+      const main = document.querySelector('video.html5-main-video');
+      document.querySelectorAll('video').forEach((v) => { if (v !== main && !v.paused) v.pause(); });
+      if (performance.clearResourceTimings) performance.clearResourceTimings();
+      if (performance.clearMeasures) performance.clearMeasures();
+      if (performance.clearMarks) performance.clearMarks();
+    } catch (_) { /* best effort */ }
+  }
+
+  // Never interrupt playback: only recycle when nothing is playing.
+  function canRecycle() {
+    const v = document.querySelector('video.html5-main-video');
+    return !v || v.paused || v.ended;
+  }
+
+  function recycle() {
+    try {
+      const last = Number(sessionStorage.getItem(RECYCLE_KEY) || 0);
+      if (Date.now() - last < RECYCLE_COOLDOWN_MS) return;   // a limit below what YouTube needs must not loop
+      sessionStorage.setItem(RECYCLE_KEY, String(Date.now()));
+    } catch (_) { /* storage unavailable: still recycle once per call */ }
+
+    const url = new URL(location.href);
+    const v = document.querySelector('video.html5-main-video');
+    if (v && /^\/watch/.test(url.pathname) && Number.isFinite(v.currentTime) && v.currentTime > 5) {
+      url.searchParams.set('t', Math.floor(v.currentTime) + 's');   // resume where you were
+    }
+    location.replace(url.href);
+  }
+
+  S.limits = (info) => {
+    if (!info || typeof info !== 'object') return;
+    S.lim = info;
+    setSaver(info.saver);
+
+    if (!info.over) { overSince = 0; idleSince = 0; return; }
+    const now = Date.now();
+    if (!overSince) overSince = now;
+    if (now - lastTrim > TRIM_EVERY_MS) { lastTrim = now; trimSoft(); }
+
+    if (now - overSince > OVER_FOR_MS) {
+      if (!canRecycle()) { idleSince = 0; return; }          // playing: leave it alone
+      if (!idleSince) idleSince = now;
+      if (now - idleSince > IDLE_FOR_MS) { overSince = 0; idleSince = 0; recycle(); }
+    }
+  };
 
   // ---- floating settings button ------------------------------------------------------------------
   function mount() {

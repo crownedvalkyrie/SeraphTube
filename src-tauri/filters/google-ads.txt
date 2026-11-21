@@ -1,1 +1,43 @@
 ! Google ad servers (stricter)
+! A focused list of Google-owned ad, tracking and monetisation endpoints.
+! This list is off by default because blocking some of these can make YouTube
+! show the "Experiencing interruptions?" slowdown message.
+!
+! Syntax: EasyList / Adblock Plus
+! Last updated: 2026-11-20
+
+! --- Google ad serving ---
+||doubleclick.net^
+||googleadservices.com^
+||googlesyndication.com^
+||googletagmanager.com^
+||googletagservices.com^
+||google-analytics.com^
+||googleoptimize.com^
+||googleadsserving.cn^
+||googletagmanager-cn.com^
+||google-analytics-cn.com^
+||ads.google.com^
+||pagead.google.com^
+||pagead.l.doubleclick.net^
+||pagead2.googlesyndication.com^
+||tpc.googlesyndication.com^
+||adservice.google.com^
+||adservice.google.com.au^
+||adservice.google.ca^
+||adservice.google.co.uk^
+||adservice.google.de^
+||adservice.google.fr^
+||adservice.google.jp^
+||adservice.google.com.br^
+||googleads.g.doubleclick.net^
+||cm.g.doubleclick.net^
+||ssl.google-analytics.com^
+||www.google-analytics.com^
+||www.googleadservices.com^
+||www.googletagmanager.com^
+||www.googletagservices.com^
+
+! Note: rules targeting youtube.com, googlevideo.com or other YouTube first-party
+! hosts are intentionally ignored by Seraphtube because blocking them causes the
+! "Experiencing interruptions?" slowdown. This list only blocks Google ad servers.
