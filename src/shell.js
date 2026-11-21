@@ -153,7 +153,6 @@
   // them before YouTube's own code sees them is cheaper and cleaner than hiding them later.
   const AD_KEYS = [
     'adPlacements', 'playerAds', 'adSlots', 'adBreakHeartbeatParams',
-    'adLoggingData', 'adSignalsInfo', 'adSafetyReason', 'adParams',
   ];
   // Nested keys to remove from objects (not just top-level arrays).
   const AD_NESTED_KEYS = ['enforcementMessageViewModel', 'adBlockMessageViewModel'];
@@ -225,7 +224,7 @@
         // Remove known nested ad keys (e.g. auxiliaryUi.messageRenderers.enforcementMessageViewModel)
         // without deleting the whole parent object.
         if (AD_NESTED_KEYS.includes(key)) {
-          try { delete current[key]; removed += 1; continue; } catch (_) {}
+          try { current[key] = {}; removed += 1; continue; } catch (_) {}
         }
         stack.push(value);
       }
@@ -241,7 +240,9 @@
     const parsed = originalParse.call(this, text, reviver);
     if (S.on && typeof text === 'string' && text.length > 256) {
       for (const marker of AD_MARKERS) {
-        if (text.includes(marker)) return pruneAds(parsed);
+        if (text.includes(marker)) {
+          try { return pruneAds(parsed); } catch (_) { return parsed; }
+        }
       }
     }
     return parsed;
@@ -252,7 +253,10 @@
     Response.prototype.json = function () {
       const pending = originalResponseJson.call(this);
       const url = this.url;
-      return S.on && typeof url === 'string' && url.includes('/youtubei/') ? pending.then(pruneAds) : pending;
+      if (S.on && typeof url === 'string' && url.includes('/youtubei/')) {
+        return pending.then((data) => { try { return pruneAds(data); } catch (_) { return data; } });
+      }
+      return pending;
     };
   }
 
@@ -286,16 +290,6 @@
             });
           } catch (_) {}
         }
-        // Pretend the player has already allowed an instream ad, which short-circuits
-        // some anti-adblock checks.
-        try {
-          Object.defineProperty(Object.prototype, 'hasAllowedInstreamAd', {
-            configurable: true,
-            enumerable: false,
-            get: () => true,
-            set: () => {},
-          });
-        } catch (_) {}
       }
       // Neutralise the popup model config if it is already present.
       const cfg = window.yt && window.yt.config_ && window.yt.config_.openPopupConfig;
@@ -307,15 +301,18 @@
   antiAdblockPatch();
 
   // Hide any anti-adblock dialog that the page still tries to render.
+  // We hide rather than remove so YouTube's dialog lifecycle stays intact.
   function hideAdblockDialogs() {
     if (!S.on) return;
     const dialogs = document.querySelectorAll('tp-yt-paper-dialog, ytd-modal-with-title-and-button-renderer, ytd-enforcement-message-view-model');
     for (const dialog of dialogs) {
       const text = dialog.textContent || '';
-      if (/ad blocker|adblock|ads are blocked|turn off|disable.*ad|terms of service/i.test(text)) {
+      if (/ad blocker|adblock|ads are blocked|turn off.*ad|disable.*ad/i.test(text)) {
+        if (dialog.getAttribute('hidden') && dialog.style.display === 'none') continue;
         dialog.setAttribute('hidden', '');
         dialog.style.display = 'none';
-        dialog.remove();
+        dialog.style.visibility = 'hidden';
+        dialog.style.pointerEvents = 'none';
         countBlocked();
       }
     }

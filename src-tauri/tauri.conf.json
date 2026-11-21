@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Seraphtube",
-  "version": "0.2.0",
+  "version": "0.2.4",
   "identifier": "app.seraphtube.desktop",
   "build": {
     "frontendDist": "../src"

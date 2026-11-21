@@ -69,7 +69,9 @@
   .scene { display: none; position: absolute; inset: 0; }
   html[data-scene="wings"] .scene-wings, html[data-scene="rose"] .scene-rose,
   html[data-scene="stars"] .scene-stars, html[data-scene="gates"] .scene-gates,
-  html[data-scene="sigil"] .scene-sigil, html[data-scene="vigil"] .scene-vigil { display: block; }
+  html[data-scene="sigil"] .scene-sigil, html[data-scene="vigil"] .scene-vigil,
+  html[data-scene="crown"] .scene-crown, html[data-scene="hourglass"] .scene-hourglass,
+  html[data-scene="moon"] .scene-moon { display: block; }
   .scene svg { display: block; width: 100%; height: 100%; overflow: visible; }
 
   /* drawing strokes: elements carry pathLength="1" */
@@ -220,6 +222,51 @@
            animation: smoke 3s ease-out calc((1.6s + var(--o) * .25s) * var(--d)) infinite; }
   @keyframes smoke { 0% { opacity: 0; transform: translateY(0); } 25% { opacity: .5; } 100% { opacity: 0; transform: translateY(-26px); } }
 
+  /* ====================================== 7. CROWN ========================================== */
+  .cr-band { fill: none; stroke: var(--acc); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 1;
+             animation: bandIn calc(.7s * var(--d)) cubic-bezier(.2, .9, .3, 1) calc(.1s * var(--d)) both; }
+  @keyframes bandIn { from { opacity: 0; stroke-dashoffset: 1; } }
+  .cr-point { fill: var(--acc); stroke: var(--txt); stroke-width: .8; transform-box: fill-box; transform-origin: 50% 100%;
+              animation: pointIn calc(.6s * var(--d)) cubic-bezier(.3, 1.6, .5, 1) calc((.35s + var(--i) * .08s) * var(--d)) both; }
+  @keyframes pointIn { from { opacity: 0; transform: scaleY(0); } }
+  .cr-jewel { fill: var(--acc2); stroke: var(--txt); stroke-width: .6; transform-box: fill-box; transform-origin: center;
+              animation: jewelIn calc(.5s * var(--d)) cubic-bezier(.3, 1.8, .5, 1) calc((.7s + var(--i) * .08s) * var(--d)) both; }
+  @keyframes jewelIn { from { opacity: 0; transform: scale(0) rotate(-45deg); } }
+  .cr-ray { stroke: var(--acc); stroke-width: 1.2; stroke-linecap: round; opacity: 0;
+            animation: rayPop calc(.5s * var(--d)) ease-out calc((.9s + var(--i) * .05s) * var(--d)) forwards,
+                       pulse 2.2s ease-in-out calc(1.4s * var(--d)) infinite alternate; }
+  @keyframes rayPop { from { opacity: 0; transform: scale(.5); } to { opacity: .7; } }
+
+  /* ====================================== 8. HOURGLASS ====================================== */
+  .hg-glass { fill: var(--soft); stroke: var(--acc); stroke-width: 2; stroke-linecap: round; transform-box: fill-box; transform-origin: center;
+              animation: glassIn calc(.8s * var(--d)) ease-out calc(.1s * var(--d)) both; }
+  @keyframes glassIn { from { opacity: 0; transform: rotate(-30deg) scale(.7); } }
+  .hg-sand-top, .hg-sand-bot { fill: var(--acc); transform-box: fill-box; transform-origin: 50% 100%;
+                               animation: sandDrain calc(1.4s * var(--d)) ease-in-out calc(.5s * var(--d)) forwards; }
+  .hg-sand-bot { transform-origin: 50% 0; animation-name: sandFill; }
+  @keyframes sandDrain { from { transform: scaleY(1); } to { transform: scaleY(.25); } }
+  @keyframes sandFill { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+  .hg-stream { stroke: var(--acc); stroke-width: 1.4; stroke-linecap: round; stroke-dasharray: 4 3; opacity: 0;
+               animation: streamIn calc(.3s * var(--d)) ease-out calc(.6s * var(--d)) forwards,
+                          streamFall calc(.8s * var(--d)) linear calc(.9s * var(--d)) infinite; }
+  @keyframes streamIn { to { opacity: 1; } }
+  @keyframes streamFall { from { stroke-dashoffset: 7; } to { stroke-dashoffset: 0; } }
+  .hg-frame { fill: none; stroke: var(--txt); stroke-width: 2.4; stroke-linecap: round;
+              animation: frameIn calc(.7s * var(--d)) ease-out calc(.2s * var(--d)) both; }
+
+  /* ====================================== 9. MOON =========================================== */
+  .mn-sky { fill: url(#moonGlow); opacity: 0; animation: glowIn calc(1s * var(--d)) ease-out calc(.1s * var(--d)) forwards; }
+  .mn-moon { fill: var(--txt); stroke: none; transform-box: fill-box; transform-origin: center;
+             animation: moonIn calc(1s * var(--d)) cubic-bezier(.2, .9, .3, 1) calc(.2s * var(--d)) both,
+                        bob 3s ease-in-out calc(1.2s * var(--d)) infinite alternate; }
+  @keyframes moonIn { from { opacity: 0; transform: translateY(20px) scale(.8); } }
+  .mn-crater { fill: var(--dim); opacity: .35; transform-box: fill-box; transform-origin: center;
+               animation: craterIn calc(.5s * var(--d)) ease-out calc((.8s + var(--i) * .08s) * var(--d)) both; }
+  @keyframes craterIn { from { opacity: 0; transform: scale(0); } }
+  .mn-star { fill: var(--acc); transform-box: fill-box; transform-origin: center;
+             animation: starPop calc(.5s * var(--d)) cubic-bezier(.3, 1.8, .5, 1) calc((.5s + var(--i) * .1s) * var(--d)) both,
+                        twinkle var(--tw) ease-in-out var(--td) infinite alternate; }
+
   /* ====================================== title block ======================================= */
   .title {
     margin: 4px 0 0; color: var(--acc);
@@ -355,6 +402,24 @@
           </defs>
         </svg>
       </div>
+
+      <!-- 7 · Crown -->
+      <div class="scene scene-crown">
+        <div class="glow"></div>
+        <svg id="crown" viewBox="0 0 400 260" role="img" aria-label="A gothic crown assembling"></svg>
+      </div>
+
+      <!-- 8 · Hourglass -->
+      <div class="scene scene-hourglass">
+        <svg id="hourglass" viewBox="0 0 400 260" role="img" aria-label="An hourglass turning"></svg>
+      </div>
+
+      <!-- 9 · Moon -->
+      <div class="scene scene-moon">
+        <svg id="moon" viewBox="0 0 400 260" role="img" aria-label="A crescent moon rising">
+          <defs></defs>
+        </svg>
+      </div>
     </div>
 
     <h1 class="title">Seraphtube</h1>
@@ -366,7 +431,7 @@
 (() => {
   'use strict';
 
-  const SCENES = ['wings', 'rose', 'stars', 'gates', 'sigil', 'vigil'];
+  const SCENES = ['wings', 'rose', 'stars', 'gates', 'sigil', 'vigil', 'crown', 'hourglass', 'moon'];
   const NS = 'http://www.w3.org/2000/svg';
 
   // ---- helpers ----------------------------------------------------------------------------------
@@ -545,6 +610,84 @@
     });
   }
 
+  // ---- 7 · crown --------------------------------------------------------------------------------
+  function buildCrown() {
+    const svg = document.getElementById('crown');
+    if (svg.querySelector('.cr-band')) return;
+    const band = 'M110 180q90 24 180 0';
+    node('path', { d: band, pathLength: 1, class: 'draw cr-band' }, '--at:.1s;--len:.7s', svg);
+
+    const points = [
+      { x: 130, y: 178, h: 42 }, { x: 165, y: 184, h: 58 }, { x: 200, y: 186, h: 70 },
+      { x: 235, y: 184, h: 58 }, { x: 270, y: 178, h: 42 },
+    ];
+    points.forEach((p, i) => {
+      const d = `M${p.x - 10} ${p.y}L${p.x} ${p.y - p.h}L${p.x + 10} ${p.y}Z`;
+      node('path', { d, class: 'cr-point' }, `--i:${i}`, svg);
+      node('circle', { cx: p.x, cy: p.y - p.h + 6, r: 5, class: 'cr-jewel' }, `--i:${i}`, svg);
+    });
+
+    // Rays above the centre jewel.
+    for (let k = 0; k < 7; k += 1) {
+      const a = -70 + k * 23;
+      const [sx, sy] = polar(200, 130, 54, a - 90);
+      const [ex, ey] = polar(200, 130, 74, a - 90);
+      node('path', { d: `M${sx.toFixed(1)} ${sy.toFixed(1)}L${ex.toFixed(1)} ${ey.toFixed(1)}`, class: 'cr-ray' }, `--i:${k}`, svg);
+    }
+  }
+
+  // ---- 8 · hourglass ----------------------------------------------------------------------------
+  function buildHourglass() {
+    const svg = document.getElementById('hourglass');
+    if (svg.querySelector('.hg-frame')) return;
+    const cx = 200;
+    const topY = 72, botY = 188, neck = 130;
+    // Top bulb (points down).
+    const topBulb = `M${cx - 44} ${topY}q0 30 44 54q44 -24 44 -54Z`;
+    // Bottom bulb (points up).
+    const botBulb = `M${cx - 44} ${botY}q0 -30 44 -54q44 24 44 54Z`;
+    node('path', { d: topBulb, class: 'hg-sand-top' }, null, svg);
+    node('path', { d: botBulb, class: 'hg-sand-bot' }, null, svg);
+    // Glass outline: two bulbs connected at the neck.
+    const glass =
+      `M${cx - 44} ${topY}q0 30 44 54q44 -24 44 -54` +
+      `v12q0 18 -44 36q-44 -18 -44 -36v-12`;
+    node('path', { d: glass, class: 'hg-glass' }, null, svg);
+    // Falling sand stream.
+    node('path', { d: `M${cx} ${neck}L${cx} ${botY - 50}`, class: 'hg-stream' }, null, svg);
+    // Caps.
+    node('path', { d: `M${cx - 50} ${topY - 4}h100M${cx - 50} ${botY + 4}h100`, class: 'hg-frame' }, null, svg);
+  }
+
+  // ---- 9 · moon ---------------------------------------------------------------------------------
+  function buildMoon() {
+    const svg = document.getElementById('moon');
+    if (svg.querySelector('.mn-moon')) return;
+    const random = seeded(5);
+    // Background glow.
+    const glow = node('radialGradient', { id: 'moonGlow', cx: '50%', cy: '50%', r: '50%' }, null, svg.querySelector('defs'));
+    node('stop', { offset: '0', style: 'stop-color:var(--acc);stop-opacity:.35' }, null, glow);
+    node('stop', { offset: '1', style: 'stop-color:var(--acc);stop-opacity:0' }, null, glow);
+    node('circle', { cx: 200, cy: 130, r: 110, class: 'mn-sky' }, null, svg);
+
+    // Crescent moon drawn as two arcs.
+    const crescent = `M${200 - 52} 130a52 52 0 1 0 76 -12a44 44 0 1 1 -76 12Z`;
+    node('path', { d: crescent, class: 'mn-moon' }, null, svg);
+
+    // Craters.
+    const craters = [[185, 115, 6], [210, 138, 9], [175, 150, 5]];
+    craters.forEach(([cx, cy, r], i) => node('circle', { cx, cy, r, class: 'mn-crater' }, `--i:${i}`, svg));
+
+    // Stars.
+    for (let k = 0; k < 18; k += 1) {
+      const x = 40 + random() * 320;
+      const y = 30 + random() * 200;
+      const r = 1 + random() * 2;
+      node('circle', { cx: x.toFixed(1), cy: y.toFixed(1), r: r.toFixed(1), class: 'mn-star' },
+        `--i:${k};--tw:${(1.2 + random() * 2).toFixed(2)}s;--td:${(random() * 2).toFixed(2)}s`, svg);
+    }
+  }
+
   // ---- scene selection -------------------------------------------------------------------------------
   function readTheme() {
     const boot = window.__SERAPH_BOOT;
@@ -580,7 +723,11 @@
     applyBoot(boot || { theme: readTheme() });
     const scene = chooseScene();
     document.documentElement.dataset.scene = scene;
-    ({ wings: buildWings, rose: buildRose, stars: buildStars, gates() {}, sigil: buildSigil, vigil: buildVigil })[scene](boot);
+    ({
+      wings: buildWings, rose: buildRose, stars: buildStars, gates() {},
+      sigil: buildSigil, vigil: buildVigil, crown: buildCrown,
+      hourglass: buildHourglass, moon: buildMoon,
+    })[scene](boot);
   }
 
   // WebView2 sometimes freezes CSS timelines on the first paint; replaying idle or paused

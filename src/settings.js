@@ -183,6 +183,9 @@
     ['gates', 'Cathedral Gates', 'Great doors swing open on a flood of light.'],
     ['sigil', 'Sigil Circle', 'Rings and runes ignite around an eye.'],
     ['vigil', 'Candle Vigil', 'Candles kindle one by one.'],
+    ['crown', 'Gothic Crown', 'A crown of points and jewels assembles.'],
+    ['hourglass', 'Hourglass', 'Sand turns from top to bottom.'],
+    ['moon', 'Moonrise', 'A crescent moon rises among twinkling stars.'],
     ['random', 'Surprise me', 'A different one every launch.'],
   ];
 
